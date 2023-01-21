@@ -14,6 +14,7 @@ import sklearn.metrics as sm
 from player_stats import stats
 from player_stats import sqllite_utils
 from player_stats import scraper
+import logreg
 
 GAME_REGEX = re.compile(r"^\w+\s*@\s*\w+$", re.IGNORECASE)
 SPREAD_REGEX = re.compile(r"^Spread[:]\s(.*?)$", re.IGNORECASE)
@@ -28,8 +29,10 @@ START_TIME = str(int(time.time()))
 
 DB_CON = sqllite_utils.get_conn()
 
+log_reg = logreg.create_logistic_regression_pipe()
 
-def build_graphic(data_f, game):
+
+def build_graphic(data_f, game, spread):
     """
         Takes Pandas data frame and builds a table from it
     """
@@ -51,27 +54,33 @@ def build_graphic(data_f, game):
                   va='center',
                   ha='left',
                   fontsize=10)
-        axis.text(x=2.2,
+        axis.text(x=2.5,
                   y=row,
                   s=d['odds'],
                   va='center',
                   ha='left',
                   fontsize=10)
-        axis.text(x=3.2,
-                  y=row,
-                  s=d['team'],
-                  va='center',
-                  ha='left',
-                  fontsize=10)
-        axis.text(x=4.5,
+        # axis.text(x=3.2,
+        #           y=row,
+        #           s=d['team'],
+        #           va='center',
+        #           ha='left',
+        #           fontsize=10)
+        axis.text(x=3.5,
                   y=row,
                   s=d['over'],
                   va='center',
                   ha='left',
                   fontsize=10)
+        axis.text(x=4.5,
+                  y=row,
+                  s=d['over_proba'],
+                  va='center',
+                  ha='left',
+                  fontsize=10)
         axis.text(x=5.5,
                   y=row,
-                  s=d['proj'],
+                  s=d['over_class'],
                   va='center',
                   ha='left',
                   fontsize=10)
@@ -79,10 +88,11 @@ def build_graphic(data_f, game):
     # Column Title
     axis.text(0.2, rows, 'Player', weight='bold', ha='left')
     axis.text(1.5, rows, 'Prop', weight='bold', ha='left')
-    axis.text(2.2, rows, 'Odds', weight='bold', ha='left')
-    axis.text(3.2, rows, 'Team', weight='bold', ha='left')
-    axis.text(4.5, rows, 'Over %', weight='bold', ha='left')
-    axis.text(5.5, rows, 'Proj', weight='bold', ha='left')
+    axis.text(2.5, rows, 'Odds', weight='bold', ha='left')
+    # axis.text(3.2, rows, 'Team', weight='bold', ha='left')
+    axis.text(3.5, rows, 'Over %', weight='bold', ha='left')
+    axis.text(4.5, rows, 'Proba', weight='bold', ha='left')
+    axis.text(5.5, rows, 'Class', weight='bold', ha='left')
 
     # Creates lines
     for row in range(rows):
@@ -102,7 +112,7 @@ def build_graphic(data_f, game):
     axis.plot([-.1, cols + 0.1], [row + 0.5, row + 0.5], lw='.5', c='black')
 
     axis.axis('off')
-    axis.set_title(f"{beatuify_name(game)} - Points",
+    axis.set_title(f"{beatuify_name(game)}, Spread: {spread}",
                    loc='left',
                    fontsize=18,
                    weight='bold')
@@ -176,13 +186,9 @@ def calculate_correct(prop_type):
                 #     f"Wrong over: {over} proj: {gam_proj} actual_points: {game_log}"
                 # )
                 pass
-        else:
-            print(
-                f"Couldnt get actual points {name} {team_name} and {game_date}"
-            )
     if total == 0:
         return 0
-    print(f"{y_pred[0:10]}\n{y_avg_pred[0:10]}")
+    print(f"{y_custom_pred[0:10]}\n{y_avg_pred[0:10]}")
     print("Mean absolute error Just Avg =",
           round(sm.mean_absolute_error(y_actual, y_avg_pred), 2))
     print("Mean absolute error Custom Proj =",
@@ -204,12 +210,14 @@ def main(prop_date, calc_corr):
             'id': [],
             'prop': [],
             'odds': [],
-            'team': [],
+            # 'team': [],
             'over': [],
             'proj': [],
-            'gam_proj': []
+            'over_proba': [],
+            'over_class': []
         }
         t_props = get_team_props(props, team)
+        spread = t_props[0].get('team_spread')
         for t_prop in t_props:
             over_under = stats.get_points_ats(t_prop)
             team_dict.get('id').append(beatuify_name(
@@ -218,12 +226,15 @@ def main(prop_date, calc_corr):
                 t_prop.get('prop_name')))
             team_dict.get('odds').append(
                 f"o{t_prop.get('over_num')} {t_prop.get('over_odds')}")
-            team_dict.get('team').append(beatuify_name(
-                t_prop.get('team_name')))
+            # team_dict.get('team').append(beatuify_name(
+            #     t_prop.get('team_name')))
             team_dict.get('over').append(over_under)
             team_dict.get('proj').append(stats.get_points_proj(t_prop))
-            team_dict.get('gam_proj').append(stats.get_gam_pred(t_prop))
-        figs.append(build_graphic(pd.DataFrame(team_dict), team))
+            team_dict.get('over_proba').append(
+                logreg.get_class_proba(t_prop, log_reg))
+            team_dict.get('over_class').append(
+                logreg.get_over_class(t_prop, log_reg))
+        figs.append(build_graphic(pd.DataFrame(team_dict), team, spread))
     pdf = matplotlib.backends.backend_pdf.PdfPages("./reports/" + START_TIME +
                                                    '-report.pdf')
     for fig in figs:
@@ -236,9 +247,4 @@ def main(prop_date, calc_corr):
 # scraper.update_player_gamelogs()
 # scraper.update_todays_player_props()
 
-# main("12-30-2022", False)
-
-calculate_correct('points')
-
-# stats.create_3pt_gam()
-# stats.create_2pt_gam()
+# main("01-20-2023", False)

@@ -6,12 +6,9 @@ import re
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
+from datetime import date
 
-from player_stats import scraper, sqllite_utils
-
-from pygam import GAM, GammaGAM, LinearGAM, LogisticGAM, s, f, te, l
-
-from sklearn.model_selection import train_test_split
+from player_stats import sqllite_utils
 
 SCORE_REGEX = re.compile(r"^[WLT]{1}(\d+)[\-]{1}(\d+).*?$")
 OPP_REGEX = re.compile(r"^(@|vs)(\w+)$")
@@ -19,33 +16,26 @@ DB_CON = sqllite_utils.get_db_in_mem()
 NBA_SEASON_KEY = '2022-23'
 NAME_LINK_REGEX = re.compile(r"^.*?/name/(\w+)/(.*?)$", re.IGNORECASE)
 RESULT_REGEX = re.compile(r"^(W|L)(\d{2,3})-(\d{2,3}).*?$")
-# top pace
-TOP_PACE = sqllite_utils.get_n_pace(5, True, DB_CON)
-WORST_PACE = sqllite_utils.get_n_pace(5, False, DB_CON)
+
 # bottom pac
-TOP_D = sqllite_utils.get_n_def(4, True, DB_CON)
-WORST_D = sqllite_utils.get_n_def(4, False, DB_CON)
+TOP_D = sqllite_utils.get_n_def(8, True, DB_CON)
+# print(TOP_D)
+WORST_D = sqllite_utils.get_n_def(8, False, DB_CON)
+# print(WORST_D)
 
-TOP_3PT_D = sqllite_utils.get_n_three_d(5, True, DB_CON)
-WORST_3PT_D = sqllite_utils.get_n_three_d(5, False, DB_CON)
+TOP_3PT_D = sqllite_utils.get_n_three_d(12, True, DB_CON)
+WORST_3PT_D = sqllite_utils.get_n_three_d(12, False, DB_CON)
 
-TOP_2PT_D = sqllite_utils.get_n_two_d(5, True, DB_CON)
-WORST_2PT_D = sqllite_utils.get_n_two_d(5, False, DB_CON)
+TOP_2PT_D = sqllite_utils.get_n_two_d(12, True, DB_CON)
+WORST_2PT_D = sqllite_utils.get_n_two_d(12, False, DB_CON)
 
-TOP_DEF_RB_PER = sqllite_utils.get_n_deff_rb(5, True, DB_CON)
-WORST_DEF_RB_PER = sqllite_utils.get_n_deff_rb(5, False, DB_CON)
+TOP_DEF_RB_PER = sqllite_utils.get_n_deff_rb(10, True, DB_CON)
+WORST_DEF_RB_PER = sqllite_utils.get_n_deff_rb(10, False, DB_CON)
 
-ALL_PACE = sqllite_utils.get_n_pace(30, False, DB_CON)
-ALL_2PT_D = sqllite_utils.get_n_two_d(30, True, DB_CON)
-ALL_3PT_D = sqllite_utils.get_n_three_d(30, True, DB_CON)
-ALL_DEF_RTG = sqllite_utils.get_n_def(30, True, DB_CON)
-ALL_DEF_RB_PER = sqllite_utils.get_n_deff_rb(30, True, DB_CON)
-ALL_OFF_RB_PER = sqllite_utils.get_n_off_rb(30, True, DB_CON)
-
-TEAM_NAME_PACE = sqllite_utils.get_team_name_and_pace(DB_CON)
-TEAM_NAME_2PT = sqllite_utils.get_team_name_and_2pt_made(DB_CON)
-TEAM_NAME_3PT = sqllite_utils.get_team_name_and_3pt_made(DB_CON)
-DEF_RTG = sqllite_utils.get_team_name_and_def_rating(DB_CON)
+TEAM_NAME_PACE = sqllite_utils.get_team_name_and_stat(DB_CON, 'pace', 'nba_adv_stats')
+TEAM_NAME_2PT = sqllite_utils.get_team_name_and_stat(DB_CON, 'two_point_made', 'opp_scoring')
+TEAM_NAME_3PT = sqllite_utils.get_team_name_and_stat(DB_CON, 'three_point_made', 'opp_scoring')
+DEF_RTG = sqllite_utils.get_team_name_and_stat(DB_CON, 'def_rtg', 'nba_adv_stats')
 
 
 def get_2_pt_freq(gls):
@@ -59,8 +49,8 @@ def get_2_pt_freq(gls):
     return 0
 
 
-def _remove_outliers_mod(gamelogs, stat_key, lower_bound, upper_bound,
-                         print_results):
+def remove_outliers_mod(gamelogs, stat_key, lower_bound, upper_bound,
+                        print_results):
     r"""
         :param stat_key = YDS, ATT, CMP, REC
         :param sec_key = Passing, Rushing or Recieving
@@ -130,8 +120,8 @@ def get_points_ats(prop_dict):
         prop_dict.get('player_name'), prop_dict.get('season'),
         convert_team_name(prop_dict.get('team_name')), DB_CON)
 
-    gls_no_outliers = _remove_outliers_mod(gls, 'minutes_played', -2.5, 3,
-                                           False)
+    gls_no_outliers = remove_outliers_mod(gls, 'minutes_played', -2.5, 3,
+                                          False)
 
     over_odds = 0.0
 
@@ -161,14 +151,15 @@ def create_int_to_team_name(team_urls):
         team_name_to_int[match.group(1).upper()] = match.group(2)
     return team_name_to_int
 
+
 def get_stat_mean_for_player(player_name, team_name, stat_key):
     """
     get mean of stat
     """
     player_gls = sqllite_utils.get_player_gls(player_name, NBA_SEASON_KEY,
                                               team_name, DB_CON)
-    gls_no_outliers = _remove_outliers_mod(player_gls, 'minutes_played', -2.6,
-                                           3, False)
+    gls_no_outliers = remove_outliers_mod(player_gls, 'minutes_played', -2.6,
+                                          3, False)
 
     stats = [x.get(stat_key) for x in gls_no_outliers]
     return float("{:.1f}".format(np.mean(stats)))
@@ -178,7 +169,7 @@ def points_histogram():
     all_gls = []
     for player in sqllite_utils.get_unique_player_names(DB_CON):
         all_gls.extend(
-            _remove_outliers_mod(
+            remove_outliers_mod(
                 sqllite_utils.get_player_gls(player.get('player_name'),
                                              NBA_SEASON_KEY,
                                              player.get('team_name'), DB_CON),
@@ -196,25 +187,27 @@ def points_histogram():
     plt.show()
 
 
-
 def _get_weights(stat_key, flip_sign, player_name, team_name):
     corr = sqllite_utils.get_player_correlations(player_name,
                                                  convert_team_name(team_name),
                                                  DB_CON).get(stat_key)
-
-    corr = min(corr, 0.8)
     if flip_sign:
         corr = corr * -1
-    return corr * 25
+    return corr * 28
 
 
 def _get_player_weights(player_name, team_name, points_mean):
     weights = {}
 
-    weights['high_pace_w'] = per_of_proj(
+    weights['faster_diff'] = per_of_proj(
         _get_weights('pace_corr', False, player_name, team_name), points_mean)
-    weights['low_pace_w'] = per_of_proj(
+    weights['slower_diff'] = per_of_proj(
         _get_weights('pace_corr', True, player_name, team_name), points_mean)
+
+    weights['rested'] = per_of_proj(
+        _get_weights('rest_corr', False, player_name, team_name), points_mean)
+    weights['no_rest'] = per_of_proj(
+        _get_weights('rest_corr', True, player_name, team_name), points_mean)
 
     weights['top_3pt_def_w'] = per_of_proj(
         _get_weights('three_pt_corr', True, player_name, team_name),
@@ -237,12 +230,47 @@ def _get_player_weights(player_name, team_name, points_mean):
         _get_weights('total_corr', True, player_name, team_name), points_mean)
 
     weights['top_def_rb_perr_weight'] = per_of_proj(
-        _get_weights('opp_def_rb_per_corr', True, player_name, team_name),
-        points_mean)
-    weights['worst_def_rb_perr_weight'] = per_of_proj(
         _get_weights('opp_def_rb_per_corr', False, player_name, team_name),
         points_mean)
+    weights['worst_def_rb_perr_weight'] = per_of_proj(
+        _get_weights('opp_def_rb_per_corr', True, player_name, team_name),
+        points_mean)
     return weights
+
+
+GL_DATE_REGEX = re.compile(r"^.*?(\d{1,2})/(\d{1,2})$")
+
+
+def days_since_last_game(prop_date, gls, player_name):
+    #12-19-2022
+    prop_date_arr = prop_date.split('-')
+    prop_date = date(int(prop_date_arr[2]), int(prop_date_arr[0]),
+                     int(prop_date_arr[1]))
+    # print(f"prop date {prop_date}")
+    #Fri 12/16
+    days = 15
+    g_date = None
+    for gl in gls:
+        game_date_match = GL_DATE_REGEX.match(gl.get('game_date'))
+        year = 2022
+        if game_date_match.group(1) == '1':
+            year = 2023
+        game_date = date(year, int(game_date_match.group(1)),
+                         int(game_date_match.group(2)))
+        delta = prop_date - game_date
+        if int(delta.days) < days and prop_date != game_date and int(
+                delta.days) > 0:
+            days = int(delta.days)
+            g_date = game_date
+    # print(f"Game data: {g_date}")
+    # print(f'Its been {days} since {player_name} the last game')
+    return days
+
+
+def get_pace_diff(opp, players_team):
+    # print(f"{opp} : {players_team}")
+    return TN_PACE.get(convert_team_name(opp)) - TN_PACE.get(
+        convert_team_name(players_team))
 
 
 # IF total = 0 it was locked
@@ -257,73 +285,69 @@ def get_points_proj(prop_dict):
         prop_dict.get('player_name'), prop_dict.get('season'),
         convert_team_name(prop_dict.get('team_name')), DB_CON)
 
-    gls_no_outliers = _remove_outliers_mod(gls, 'minutes_played', -2.5, 3,
-                                           False)
+    gls_no_outliers = remove_outliers_mod(gls, 'minutes_played', -2.5, 3,
+                                          False)
+
+    rest_days = days_since_last_game(prop_dict.get('prop_scraped'), gls,
+                                     prop_dict.get('player_name'))
 
     points = [x.get('points') for x in gls_no_outliers]
     points_mean = np.mean(points)
 
-    opp = prop_dict.get('opp_name')
+    opp = convert_team_name(prop_dict.get('opp_name'))
 
     three_point_shooter = get_3_pt_freq(gls_no_outliers) >= 50
-    two_point_shooter = get_2_pt_freq(gls_no_outliers) >= 60
-
-    # print(f"Mean before modifyer {points_mean}")
+    two_point_shooter = get_2_pt_freq(gls_no_outliers) >= 52
 
     weights = _get_player_weights(prop_dict.get('player_name'),
                                   prop_dict.get('team_name'), points_mean)
 
-    if opp in WORST_PACE:
-        # print(f"{opp} worst pace {weights['low_pace_w']}")
-        points_mean += weights['low_pace_w']
-    elif opp in TOP_PACE:
-        # print(f"{opp} top pace {weights['high_pace_w']}")
-        points_mean += weights['high_pace_w']
+    pace_diff = get_pace_diff(opp, prop_dict.get('team_name'))
+
+    if pace_diff > 2:
+        points_mean += weights['faster_diff'] / 2
+    if pace_diff < -2:
+        points_mean += weights['slower_diff'] / 2
 
     if three_point_shooter:
         if opp in TOP_3PT_D:
-            # print(f'3PT shooter agasint 3PT Top D {weights["top_3pt_def_w"]}')
             points_mean += weights["top_3pt_def_w"]
         if opp in WORST_3PT_D:
-            # print(
-            #     f'3PT Shooter agasint 3PT Worst D {weights["worst_3pt_def_w"]}'
-            # )
             points_mean += weights["worst_3pt_def_w"]
-    elif two_point_shooter:
+    if two_point_shooter:
         if opp in TOP_2PT_D:
-            # print(f'2PT Shooter agasint 2PT Top D {weights["top_2pt_def"]}')
             points_mean += weights["top_2pt_def"]
         if opp in WORST_2PT_D:
-            # print(
-            # f'2PT Shooter agasint 2PT Worst D {weights["worst_2pt_def"]}')
             points_mean += weights["worst_2pt_def"]
 
-    # Big lead probably sitting..
-    if prop_dict.get("team_spread") <= -10:
-        # print(
-        #     f"Big fav {prop_dict.get('team_spread')} {weights['big_fav_weight']}"
-        # )
-        points_mean += weights['big_fav_weight']
+    # Worse score with this added..
+    # # Big lead probably sitting..
+    # if prop_dict.get("team_spread") <= -9.5:
+    #     points_mean += weights['big_fav_weight']
 
-    if prop_dict.get('game_total') > 228:
-        # print(f"High scoring game {weights['high_total_weight']}")
+    # if prop_dict.get('team_spread') >= 9.5:
+    #     points_mean += weights['big_fav_weight']
+
+    if prop_dict.get('game_total') > 230:
         points_mean += weights['high_total_weight']
 
     if prop_dict.get('game_total') < 216:
-        # print(f"Low scoring game {weights['low_total_weight']}")
         points_mean += weights['low_total_weight']
 
     if opp in WORST_DEF_RB_PER:
-        # print(f'Worst Def rb percentage {weights["worst_def_rb_perr_weight"]}')
         points_mean += weights["worst_def_rb_perr_weight"]
 
     if opp in TOP_DEF_RB_PER:
-        # print(f'Top Def rb percentage {weights["top_def_rb_perr_weight"]}')
         points_mean += weights["top_def_rb_perr_weight"]
 
-    # print(f"Mean after modifyer: {points_mean}")
+    if rest_days <= 1:
+        points_mean += weights["no_rest"]
+
+    if rest_days >= 3:
+        points_mean += weights["rested"]
 
     return format_proj(points_mean)
+
 
 def format_proj(projection) -> str():
     r"""

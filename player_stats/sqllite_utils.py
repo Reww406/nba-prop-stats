@@ -1,12 +1,17 @@
+"""
+    Module to make interacting with Sqlite3 
+    easier
+"""
+
 import sqlite3
 
 
 # returns row as dictionary
 def _dict_factory(cursor, row):
-    d = {}
+    dict_fact = {}
     for idx, col in enumerate(cursor.description):
-        d[col[0]] = row[idx]
-    return d
+        dict_fact[col[0]] = row[idx]
+    return dict_fact
 
 
 def get_db_in_mem():
@@ -35,10 +40,10 @@ def insert_player_gamelogs(gamelog, cur):
         Inserts gamelog into player db.
     """
     cur.execute(
-        """INSERT INTO player_gl 
+        """INSERT INTO player_gl
            (player_name, season, game_date, team_name, result, opp, minutes_played,
-            fg_att, fg_made, fg_per, three_pt_att, three_pt_made, three_pt_per, ft_att, ft_made, ft_per,
-            rebounds, assists, blocks, steals, fouls, turn_overs, points)
+            fg_att, fg_made, fg_per, three_pt_att, three_pt_made, three_pt_per, ft_att, ft_made, 
+            ft_per, rebounds, assists, blocks, steals, fouls, turn_overs, points)
            VALUES (?, ?, ?, ?, ?, ?, ?,
                    ?, ?, ?, ?, ?, ?, ?, ?, ?,
                    ?, ?, ?, ?, ?, ?, ?)""",
@@ -60,18 +65,13 @@ def insert_correlations(corrs, cur):
     cur.execute(
         """INSERT INTO player_stat_correlation 
            (player_name, team_name, pace_corr, two_pt_corr, three_pt_corr, 
-           total_corr, opp_deff_rtg_corr, opp_def_rb_per_corr, opp_off_rb_per_corr)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
-            corrs.get('player_name'),
-            corrs.get('team_name'),
-            corrs.get('pace_corr'),
-            corrs.get('two_pt_corr'),
-            corrs.get('three_pt_corr'),
-            corrs.get('total_corr'),
-            corrs.get('opp_deff_rtg_corr'),
-            corrs.get('opp_def_rb_per_corr'),
-            corrs.get('opp_off_rb_per_corr'),
-        ))
+           total_corr, opp_deff_rtg_corr, opp_def_rb_per_corr, opp_off_rb_per_corr, rest_corr)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (corrs.get('player_name'), corrs.get('team_name'),
+         corrs.get('pace_corr'), corrs.get('two_pt_corr'),
+         corrs.get('three_pt_corr'), corrs.get('total_corr'),
+         corrs.get('opp_deff_rtg_corr'), corrs.get('opp_def_rb_per_corr'),
+         corrs.get('opp_off_rb_per_corr'), corrs.get('rest_corr')))
     cur.connection.commit()
 
 
@@ -80,9 +80,9 @@ def insert_opp_scoring_stats(gamelog, cur):
         Inserts gamelog into player db.
     """
     cur.execute(
-        """INSERT INTO opp_scoring 
+        """INSERT INTO opp_scoring
            (team_name, season, games_played, fg_freq, fg_made, fg_att, fg_per, fg_eff_per,
-            two_pt_freq, two_pt_made, two_pt_att, two_pt_per, three_pt_freq, three_pt_made, 
+            two_pt_freq, two_pt_made, two_pt_att, two_pt_per, three_pt_freq, three_pt_made,
             three_pt_att, three_pt_per)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?,
                    ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -100,10 +100,11 @@ def insert_adv_team_stats(gamelog, cur):
         Inserts gamelog into player db.
     """
     cur.execute(
-        """INSERT INTO nba_adv_stats 
+        """INSERT INTO nba_adv_stats
            (team_name, season, games_played, wins, losses, minutes_played, off_rtg,
-            def_rtg, net_rtg, ast_per, ast_to_ratio, ast_ratio, off_rebound_per, def_rebound_per, reb_per, to_ratio,
-            eff_fg_per, true_shotting_per, pace, player_impact_est, possions)
+            def_rtg, net_rtg, ast_per, ast_to_ratio, ast_ratio, off_rebound_per, def_rebound_per,
+            reb_per, to_ratio, eff_fg_per, true_shotting_per, pace, player_impact_est,
+            possions)
            VALUES (?, ?, ?, ?, ?, ?, ?,
                    ?, ?, ?, ?, ?, ?, ?, ?, ?,
                    ?, ?, ?, ?, ?)""",
@@ -154,20 +155,6 @@ def get_point_props(date, cur):
     """
     return cur.execute(select_statement, (date, )).fetchall()
 
-
-def get_point_prop(date, player_name, cur):
-    """
-        Gets props for date
-    """
-    select_statement = """
-      SELECT * FROM props WHERE player_name = ? and prop_scraped = ? and prop_name = 'points';
-    """
-    return cur.execute(select_statement, (
-        player_name,
-        date,
-    )).fetchone()
-
-
 def get_player_gls(player_name, season, team_name, cur):
     """
       Get's all game logs for player and section
@@ -179,49 +166,30 @@ def get_player_gls(player_name, season, team_name, cur):
                        (player_name + '%', team_name, season)).fetchall()
 
 
-def get_team_name_and_pace(cur):
+def get_player_games_vs_opp(player_name, season, team_name, opp, cur):
     """
-        Get pace numbers
+      Get's all game logs for player and section
     """
-    top_select = """
-      SELECT team_name, pace FROM nba_adv_stats ORDER BY pace DESC
+    select_statement = """
+      SELECT * FROM player_gl WHERE player_name LIKE ? and team_name = ? and season = ? and opp LIKE ?
     """
+    return cur.execute(
+        select_statement,
+        (player_name + '%', team_name, season, '%' + opp)).fetchall()
 
+
+def get_team_name_and_stat(cur, stat_key, stat_table):
+    """
+        Get a dictionary with team name and corresponding stat
+    """
+    top_select = f"""
+      SELECT team_name, {stat_key} FROM {stat_table}
+    """
     results = cur.execute(top_select).fetchall()
-    team_name_pace = {}
+    team_name_and_stat = {}
     for result in results:
-        team_name_pace[result.get('team_name')] = result.get('pace')
-    return team_name_pace
-
-
-def get_team_name_and_2pt_made(cur):
-    """
-        Get pace numbers
-    """
-    top_select = """
-      SELECT team_name, two_pt_made FROM opp_scoring ORDER BY two_pt_made DESC
-    """
-
-    results = cur.execute(top_select).fetchall()
-    team_name_pace = {}
-    for result in results:
-        team_name_pace[result.get('team_name')] = result.get('two_pt_made')
-    return team_name_pace
-
-
-def get_team_name_and_3pt_made(cur):
-    """
-        Get pace numbers
-    """
-    top_select = """
-      SELECT team_name, three_pt_made FROM opp_scoring ORDER BY three_pt_made DESC
-    """
-
-    results = cur.execute(top_select).fetchall()
-    team_name_pace = {}
-    for result in results:
-        team_name_pace[result.get('team_name')] = result.get('three_pt_made')
-    return team_name_pace
+        team_name_and_stat[result.get('team_name')] = result.get(stat_key)
+    return team_name_and_stat
 
 
 def get_unqiue_games_results(cur):
@@ -237,12 +205,12 @@ def get_unqiue_games_results(cur):
 
 def get_points_for_game(name, team_name, game_date, cur):
     top_select = """
-      SELECT points FROM player_gl WHERE player_name = ? AND 
+      SELECT points, minutes_played FROM player_gl WHERE player_name LIKE ? AND 
         team_name = ? AND game_date LIKE ?
     """
     # print(f"{name} {team_name} %{game_date}")
     return cur.execute(top_select,
-                       (name, team_name, '%' + game_date)).fetchone()
+                       (name + '%', team_name, '%' + game_date)).fetchone()
 
 
 def get_team_name_and_def_rating(cur):
@@ -295,6 +263,21 @@ def get_n_deff_rb(num, get_top, cur):
     if get_top:
         return [d.get('team_name') for d in cur.execute(top_select).fetchall()]
     return [d.get('team_name') for d in cur.execute(bottom_select).fetchall()]
+
+
+def get_team_name_and_def_rb(cur):
+    """
+        Get pace numbers
+    """
+    top_select = """
+      SELECT team_name, def_rebound_per FROM nba_adv_stats ORDER BY def_rebound_per DESC
+    """
+
+    results = cur.execute(top_select).fetchall()
+    team_name_pace = {}
+    for result in results:
+        team_name_pace[result.get('team_name')] = result.get('def_rebound_per')
+    return team_name_pace
 
 
 def get_n_off_rb(num, get_top, cur):

@@ -60,6 +60,7 @@ TEAMS = [
     "https://www.espn.com/nba/team/_/name/mia/miami-heat"
 ]
 
+# Used to sploof http requests device originator
 USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36(KHTML, "
     + "like Gecko) Chrome/104.0.5112.79 Safari/537.36",
@@ -68,13 +69,15 @@ USER_AGENTS = [
     + "like Gecko) Version/7.0.3 Safari/7046A194A",
 ]
 
+PLAYER_ID_REGEX = re.compile(r"^.*?/id/(\d+)/.*?$")
+GL_FORMAT_STR = "https://www.espn.com/nba/player/gamelog/_/id/{player_id}/type/nba/year/{year}"
+
 PROXY_FILE = open("proxy_pass.txt", "r", encoding="UTF-8")
 USERNAME = PROXY_FILE.readline().strip()
 PASSWORD = PROXY_FILE.readline().strip()
 PROXY_FILE.close()
 
 PROXY_URL = "http://customer-" + USERNAME + "-cc-US:" + PASSWORD + "@pr.oxylabs.io:7777"
-
 PROXIES = {"http": PROXY_URL, "https": PROXY_URL}
 
 CHROME_OPTIONS = webdriver.ChromeOptions()
@@ -85,8 +88,8 @@ PREFS = {
         'images': 2,
     }
 }
-PROP_XPATH = "/html/body/div[1]/div/div[1]/main/div/div[1]/div/div[2]/div[4]/ul/li[2]/div/div/div[3]/div/div"
-PLAYER_DIV_XPATH = "/html/body/div[1]/div/div[1]/main/div/div[1]/div/div[2]/div[4]/ul/li[2]/div/div/div[3]/div[1]"
+
+# Fanduel and ESPN have different names for the clippers..
 ESPN_TEAM_NAME_TO_FD = {'la-clippers': 'los-angeles-clippers'}
 
 retries = Retry(total=5,
@@ -102,7 +105,8 @@ OPTIONS = {'proxy': {'http': PROXY_URL, 'https': PROXY_URL}}
 CAPABILITIES = webdriver.DesiredCapabilities.CHROME
 
 MAX_RETRIES = 3
-NBA_SEASON_KEY = '2022-23'
+NBA_CURR_SEASON = '2022-23'
+# months the season is played
 NBA_MONTH = [
     "april", "march", "february", "january", "december", "november", "october"
 ]
@@ -170,6 +174,11 @@ OPP_SCORING_TO_SQL_COL_NAMES = {
 
 DB_CUR = sqllite_utils.get_conn()
 
+PROP_XPATH = "/html/body/div[1]/div/div[1]/main/div/div[1]/div/div[2]/div[4]/ul/li[2]/div/div/div[3]/div/div"
+PLAYER_DIV_XPATH = "/html/body/div[1]/div/div[1]/main/div/div[1]/div/div[2]/div[4]/ul/li[2]/div/div/div[3]/div[1]"
+SHOW_XPATH = '//*[@id="main"]/div/div[1]/div/div[2]/div[4]/ul/li[2]/div/div/div[4]/div/div/div'
+HIDE_XPATH = '//*[@id="main"]/div/div[1]/div/div[2]/div[4]/ul/li[2]/div/div/div[4]/div/div/div'
+
 
 def _scrape(url):
     r"""
@@ -221,7 +230,7 @@ def _scrape_js_page(url):
                                   chrome_options=CHROME_OPTIONS,
                                   desired_capabilities=CAPABILITIES)
 
-        driver.set_page_load_timeout(35)
+        driver.set_page_load_timeout(20)
         try:
             driver.get(url)
             if driver.page_source is None:
@@ -235,10 +244,7 @@ def _scrape_js_page(url):
     raise Exception("Failed to get: " + url)
 
 
-SHOW_XPATH = '//*[@id="main"]/div/div[1]/div/div[2]/div[4]/ul/li[2]/div/div/div[4]/div/div/div'
-HIDE_XPATH = '//*[@id="main"]/div/div[1]/div/div[2]/div[4]/ul/li[2]/div/div/div[4]/div/div/div'
-
-
+# FIXME not sure if this works
 def _scrape_js_page_select_more(url):
     r"""
         Selects the more drop down on fanduel
@@ -288,11 +294,16 @@ def _normalize_team_name(name: str):
     r"""
         Lower cases name replaces \s with -
     """
-    name_split = name.strip().split()
-    return "-".join(name_split).lower()
+    return "-".join(name.strip().split()).lower()
 
 
-def _get_top_players(team_url: str):
+def _get_season_year(season):
+    season_splt = season.split('-')
+    year = season_splt[0][0:2] + season_splt[1]
+    return year
+
+
+def _get_top_players_gl_links(team_url: str, season):
     """
         Get top players from the depth chart
         player_name and gl_link
@@ -300,18 +311,35 @@ def _get_top_players(team_url: str):
     gl_link_for_player = {}
     depth_link = team_url[:team_url.rindex('/_/')] + "/depth" + team_url[
         team_url.rindex('/_/'):]
+
     soup = BeautifulSoup(_scrape(depth_link).text, "html.parser")
     tbody = soup.find_all("tbody", {"class": ["Table", "Table__TBODY"]})[1]
     for row in tbody.find_all("tr"):
         tds = row.find_all('td')
         for i in range(0, 2):
             player_link = tds[i].find("a")['href']
-            gamelog_link = player_link[:player_link.rindex(
-                '/_/')] + "/gamelog" + player_link[player_link.rindex('/_/'):]
+            player_id = PLAYER_ID_REGEX.match(player_link).group(1)
+            year = _get_season_year(season)
+
             gl_link_for_player[_normalize_player_name(
-                tds[i].find("a").text)] = gamelog_link
+                tds[i].find("a").text)] = GL_FORMAT_STR.format(
+                    player_id=player_id, year=year)
 
     return gl_link_for_player
+
+
+def _is_game_line(text):
+    """
+        ESPN likes to throw random lines in there data
+        so we add those lines to this list to filter out
+    """
+    no_no_words = [
+        'All-Star', 'Mexico', 'Paris', 'Makeup', 'Round', 'Semifinals'
+    ]
+    for word in no_no_words:
+        if text.find(word) != -1:
+            return False
+    return True
 
 
 def _parse_gamelog_tbody(tbody):
@@ -324,8 +352,7 @@ def _parse_gamelog_tbody(tbody):
     for row in tbody.findChildren("tr"):
         row_data = []
         for t_data in row.findChildren("td"):
-            # Skips mexico city game
-            if t_data.text.find("Mexico") == -1:
+            if _is_game_line(t_data.text):
                 row_data.append(t_data.text)
         if len(row_data) >= 1:
             stats.append(row_data)
@@ -333,12 +360,15 @@ def _parse_gamelog_tbody(tbody):
 
 
 # FG, 3PT, FT parsed seperatly
-def _insert_gl_into_db(player_name, team_name, col_names, game_log):
-    db_entry = {}
-    db_entry['player_name'] = player_name
-    db_entry['season'] = NBA_SEASON_KEY
-    db_entry['team_name'] = team_name
+def _insert_gl_into_db(player_name, team_name, col_names, game_log, season):
+    db_entry = {
+        'player_name': player_name,
+        'season': season,
+        'team_name': team_name
+    }
     for col_name, stat in zip(col_names, game_log):
+        # FG, 3PT, and FT are captured as 8-10 so we need to
+        # split to get attempted and made.
         if col_name == 'FG':
             db_entry['fg_made'] = stat.split('-')[0]
             db_entry['fg_att'] = stat.split('-')[1]
@@ -356,7 +386,7 @@ def _insert_gl_into_db(player_name, team_name, col_names, game_log):
     sqllite_utils.insert_player_gamelogs(db_entry, DB_CUR)
 
 
-def _add_gamelogs_to_db(resp_future_for_name, team_name):
+def _add_gamelogs_to_db(resp_future_for_name, team_name, season):
     """
         This function is ran on a teams starting 8-10 players
         the function will iterate over a dictionary with the players
@@ -380,6 +410,7 @@ def _add_gamelogs_to_db(resp_future_for_name, team_name):
             tbody = table.find('tbody')
 
             # Filter out tables where last row is not a month
+            # FIXME This will skip over the post season
             last_row = tbody.find_all('tr')[len(tbody.find_all('tr')) -
                                             1].find_all('td')[0].text.strip()
             if last_row not in NBA_MONTH:
@@ -391,12 +422,13 @@ def _add_gamelogs_to_db(resp_future_for_name, team_name):
             for game_log in stats:
                 if game_log[0] in NBA_MONTH:
                     continue
-                _insert_gl_into_db(name, team_name, col_names, game_log)
+                _insert_gl_into_db(name, team_name, col_names, game_log,
+                                   season)
 
 
 def _insert_team_stats(stat_row, col_names, conv_map, db_func):
     db_entry = {}
-    db_entry['season'] = NBA_SEASON_KEY
+    db_entry['season'] = NBA_CURR_SEASON
     for col_name, stat in zip(col_names, stat_row):
         if conv_map.get(col_name) is None:
             raise Exception(f"Missing header in conversion dict {col_name}")
@@ -408,7 +440,7 @@ def _insert_team_stats(stat_row, col_names, conv_map, db_func):
     db_func(db_entry, DB_CUR)
 
 
-def update_player_gamelogs():
+def update_player_gamelogs(season):
     """
         Get top 5 players from each team,
         then get their game logs and append any new game
@@ -416,14 +448,13 @@ def update_player_gamelogs():
     """
     for team_url in TEAMS:
         print(f"Working on {team_url}")
-        # In loop
         future_for_player_name = {}
-        for name, link in _get_top_players(team_url).items():
+        for name, link in _get_top_players_gl_links(team_url, season).items():
             future_for_player_name[name] = _scrape_async(link)
 
         team_name = team_url[team_url.rfind("/") + 1:]
 
-        _add_gamelogs_to_db(future_for_player_name, team_name)
+        _add_gamelogs_to_db(future_for_player_name, team_name, season)
 
 
 def update_nba_adv_stats():
@@ -501,7 +532,7 @@ def _convert_team_name(team_name):
 def _insert_prop(spreads: dict, total, link, prop_name):
     page_source = _scrape_js_page_select_more(link)
     soup = BeautifulSoup(page_source, "html.parser")
-
+    # PyLint warning because C import
     dom = etree.HTML(str(soup))
     player_class = dom.xpath(PLAYER_DIV_XPATH)[0].attrib['class']
 
@@ -525,12 +556,15 @@ def _insert_prop(spreads: dict, total, link, prop_name):
             print(f"Can't find team name for {props[0]}")
             continue
         team_name = _convert_team_name(sql_object.get('team_name'))
+        if len(props) != 5:
+            print('Skipping section of prop locked')
+            continue
         teams = list(spreads.keys())
         # print(f"{team_name} and {teams}")
         teams.remove(team_name)
         opp = teams[0]
         prop_dicts.append({
-            'season': NBA_SEASON_KEY,
+            'season': NBA_CURR_SEASON,
             'player_name': _normalize_player_name(props[0]),
             'over_num': float(re.sub(r'O\s', '', props[1])),
             'team_spread': spreads.get(team_name),
