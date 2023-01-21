@@ -1,5 +1,5 @@
 """
-    Module to make interacting with Sqlite3 
+    Module to make interacting with Sqlite3
     easier
 """
 
@@ -192,174 +192,31 @@ def get_team_name_and_stat(cur, stat_key, stat_table):
     return team_name_and_stat
 
 
-def get_unqiue_games_results(cur):
-    """
-        Get pace numbers
-    """
-    top_select = """
-      SELECT DISTINCT team_name, opp, game_date, result FROM player_gl
-    """
-
-    return cur.execute(top_select).fetchall()
-
-
 def get_points_for_game(name, team_name, game_date, cur):
+    """
+        Get points and minutes played for game.
+    """
     top_select = """
       SELECT points, minutes_played FROM player_gl WHERE player_name LIKE ? AND 
         team_name = ? AND game_date LIKE ?
     """
-    # print(f"{name} {team_name} %{game_date}")
     return cur.execute(top_select,
                        (name + '%', team_name, '%' + game_date)).fetchone()
 
 
-def get_team_name_and_def_rating(cur):
-    """
-        Get pace numbers
-    """
-    top_select = """
-      SELECT team_name, def_rtg FROM nba_adv_stats ORDER BY def_rtg DESC
-    """
-
-    results = cur.execute(top_select).fetchall()
-    team_name_pace = {}
-    for result in results:
-        team_name_pace[result.get('team_name')] = result.get('def_rtg')
-    return team_name_pace
-
-
-# top pace
-def get_n_pace(num, get_top, cur):
+def get_n_team_stats(num, desc, table, stat, cur):
     """
         Get top/bottom 5 defenses based on interceptions.
     """
-
-    top_select = f"""
-      SELECT team_name FROM nba_adv_stats ORDER BY pace DESC LIMIT {num}
-    """
-
-    bottom_select = f"""
-      SELECT team_name FROM nba_adv_stats ORDER BY pace ASC LIMIT {num}
-    """
-
-    if get_top:
-        return [d.get('team_name') for d in cur.execute(top_select).fetchall()]
-    return [d.get('team_name') for d in cur.execute(bottom_select).fetchall()]
-
-
-def get_n_deff_rb(num, get_top, cur):
-    """
-        Get top/bottom 5 defenses based on interceptions.
-    """
-
-    top_select = f"""
-      SELECT team_name FROM nba_adv_stats ORDER BY def_rebound_per DESC LIMIT {num}
-    """
-
-    bottom_select = f"""
-      SELECT team_name FROM nba_adv_stats ORDER BY def_rebound_per ASC LIMIT {num}
-    """
-
-    if get_top:
-        return [d.get('team_name') for d in cur.execute(top_select).fetchall()]
-    return [d.get('team_name') for d in cur.execute(bottom_select).fetchall()]
-
-
-def get_team_name_and_def_rb(cur):
-    """
-        Get pace numbers
-    """
-    top_select = """
-      SELECT team_name, def_rebound_per FROM nba_adv_stats ORDER BY def_rebound_per DESC
-    """
-
-    results = cur.execute(top_select).fetchall()
-    team_name_pace = {}
-    for result in results:
-        team_name_pace[result.get('team_name')] = result.get('def_rebound_per')
-    return team_name_pace
-
-
-def get_n_off_rb(num, get_top, cur):
-    """
-        Get top/bottom 5 defenses based on interceptions.
-    """
-
-    top_select = f"""
-      SELECT team_name FROM nba_adv_stats ORDER BY off_rebound_per DESC LIMIT {num}
-    """
-
-    bottom_select = f"""
-      SELECT team_name FROM nba_adv_stats ORDER BY off_rebound_per ASC LIMIT {num}
-    """
-
-    if get_top:
-        return [d.get('team_name') for d in cur.execute(top_select).fetchall()]
-    return [d.get('team_name') for d in cur.execute(bottom_select).fetchall()]
-
-
-def get_n_def(num, get_top, cur):
-    """
-        Get top/bottom 5 defenses based on interceptions.
-    """
-
-    top_select = f"""
-      SELECT team_name FROM nba_adv_stats ORDER BY def_rtg ASC LIMIT {num}
-    """
-
-    bottom_select = f"""
-      SELECT team_name FROM nba_adv_stats ORDER BY def_rtg DESC LIMIT {num}
-    """
-
-    if get_top:
-        return [d.get('team_name') for d in cur.execute(top_select).fetchall()]
-    return [d.get('team_name') for d in cur.execute(bottom_select).fetchall()]
-
-
-def get_n_two_d(num, get_top, cur):
-    """
-        Get top/bottom 5 defenses based on interceptions.
-    """
-
-    top_select = f"""
-      SELECT team_name FROM opp_scoring ORDER BY two_pt_made ASC LIMIT {num}
-    """
-
-    bottom_select = f"""
-      SELECT team_name FROM opp_scoring ORDER BY two_pt_made DESC LIMIT {num}
-    """
-
-    if get_top:
-        return [d.get('team_name') for d in cur.execute(top_select).fetchall()]
-    return [d.get('team_name') for d in cur.execute(bottom_select).fetchall()]
-
-
-def get_n_three_d(num, get_top, cur):
-    """
-        Get top/bottom 5 defenses based on interceptions.
-    """
-
-    top_select = f"""
-      SELECT team_name FROM opp_scoring ORDER BY three_pt_made ASC LIMIT {num}
-    """
-
-    bottom_select = f"""
-      SELECT team_name FROM opp_scoring ORDER BY three_pt_made DESC LIMIT {num}
-    """
-
-    if get_top:
-        return [d.get('team_name') for d in cur.execute(top_select).fetchall()]
-    return [d.get('team_name') for d in cur.execute(bottom_select).fetchall()]
-
-
-def get_all_gls(cur):
-    """
-      Get's all game logs for player and section
-    """
-    select_statement = """
-      SELECT * FROM player_gl
-    """
-    return cur.execute(select_statement).fetchall()
+    if desc:
+        select = f"""
+        SELECT team_name FROM {table} ORDER BY {stat} DESC LIMIT {num}
+        """
+    else:
+        select = f"""
+        SELECT team_name FROM {table} ORDER BY {stat} ASC LIMIT {num}
+        """
+    return [d.get('team_name') for d in cur.execute(select).fetchall()]
 
 
 def get_unique_player_names(cur):

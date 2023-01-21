@@ -6,7 +6,6 @@ from datetime import datetime
 import re
 import random
 from concurrent.futures import ThreadPoolExecutor
-import time
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter, Retry
 from requests import HTTPError, ConnectTimeout, ReadTimeout
@@ -244,7 +243,7 @@ def _scrape_js_page(url):
     raise Exception("Failed to get: " + url)
 
 
-# FIXME not sure if this works
+# FIXME: not sure if this works
 def _scrape_js_page_select_more(url):
     r"""
         Selects the more drop down on fanduel
@@ -334,7 +333,8 @@ def _is_game_line(text):
         so we add those lines to this list to filter out
     """
     no_no_words = [
-        'All-Star', 'Mexico', 'Paris', 'Makeup', 'Round', 'Semifinals'
+        'All-Star', 'Mexico', 'Paris', 'Makeup', 'Round', 'Semifinals',
+        'Finals'
     ]
     for word in no_no_words:
         if text.find(word) != -1:
@@ -352,11 +352,28 @@ def _parse_gamelog_tbody(tbody):
     for row in tbody.findChildren("tr"):
         row_data = []
         for t_data in row.findChildren("td"):
+            if t_data.text.find('Previously') != -1:
+                print('Player switched teams, stop scraping')
+                return stats
             if _is_game_line(t_data.text):
                 row_data.append(t_data.text)
         if len(row_data) >= 1:
             stats.append(row_data)
     return stats
+
+
+# FIXME: will become more complicated after Feb 9th 2023
+def _month_contains_team_switch(tbody):
+    r"""
+    :param tbody is beatiful soup object of table body
+    Each sub-list (row) in the list is a game log
+    [['10', '12', '12'], ['13','13','43]]
+    """
+    for row in tbody.findChildren("tr"):
+        for t_data in row.findChildren("td"):
+            if t_data.text.find('Previously') != -1:
+                return True
+    return False
 
 
 # FG, 3PT, FT parsed seperatly
@@ -396,6 +413,7 @@ def _add_gamelogs_to_db(resp_future_for_name, team_name, season):
         The resp will be parsed and stored into a the SQLite Database
     """
     for name, future in resp_future_for_name.items():
+        print(f"Working on {name}")
         resp = ""
         try:
             resp = future.result()
@@ -404,19 +422,25 @@ def _add_gamelogs_to_db(resp_future_for_name, team_name, season):
             return
         soup = BeautifulSoup(resp.text, "html.parser")
         # Table per month on Game log page
+
+        switched_teams = False
         for table in soup.find_all("table",
                                    {"class": ["Table", "Table--align-right"]}):
+            if switched_teams:
+                print(f"{name}: switched teams last month, stopping scrape")
+                break
             thead = table.find('thead')
             tbody = table.find('tbody')
 
             # Filter out tables where last row is not a month
-            # FIXME This will skip over the post season
+            # FIXME: This will skip over the post season
             last_row = tbody.find_all('tr')[len(tbody.find_all('tr')) -
                                             1].find_all('td')[0].text.strip()
             if last_row not in NBA_MONTH:
                 continue
 
             col_names = [x.text for x in thead.find("tr").findChildren("th")]
+            switched_teams = _month_contains_team_switch(tbody)
             stats = _parse_gamelog_tbody(tbody)
 
             for game_log in stats:

@@ -1,20 +1,14 @@
 from datetime import date
 import re
-import json
-import shutil
-import time
-import matplotlib
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.backends.backend_pdf
-from pygam import GAM, LinearGAM, s, f, te, l
 from sklearn import metrics
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
 from sklearn.metrics import classification_report, precision_score, roc_auc_score
 from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import MinMaxScaler, Normalizer, PowerTransformer, QuantileTransformer, RobustScaler, StandardScaler
+from sklearn.preprocessing import StandardScaler
 
 from player_stats import stats
 from player_stats import sqllite_utils
@@ -24,12 +18,17 @@ DB_CON = sqllite_utils.get_conn()
 NBA_SEASON_KEY = '2022-23'
 NAME_LINK_REGEX = re.compile(r"^.*?/name/(\w+)/(.*?)$", re.IGNORECASE)
 
-PACE_RATINGS = sqllite_utils.get_team_name_and_pace(DB_CON)
-TOP_2PT_D = sqllite_utils.get_team_name_and_2pt_made(DB_CON)
-TOP_3PT_D = sqllite_utils.get_team_name_and_3pt_made(DB_CON)
-TOP_DEF_RTG = sqllite_utils.get_team_name_and_def_rating(DB_CON)
-TOP_DEF_RB_PER = sqllite_utils.get_team_name_and_def_rb(DB_CON)
-TOP_OFF_RB_PER = sqllite_utils.get_n_off_rb(30, True, DB_CON)
+TN_PACE = sqllite_utils.get_team_name_and_stat(DB_CON, 'pace', 'nba_adv_stats')
+TN_2PT_D = sqllite_utils.get_team_name_and_stat(DB_CON, 'two_pt_made',
+                                                'opp_scoring')
+TN_3PT_D = sqllite_utils.get_team_name_and_stat(DB_CON, 'three_pt_made',
+                                                'opp_scoring')
+TN_DEF_RTG = sqllite_utils.get_team_name_and_stat(DB_CON, 'def_rtg',
+                                                  'nba_adv_stats')
+TN_DEF_RB = sqllite_utils.get_team_name_and_stat(DB_CON, 'def_rebound_per',
+                                                 'nba_adv_stats')
+TN_OFF_RB = sqllite_utils.get_team_name_and_stat(DB_CON, 'off_rebound_per',
+                                                 'nba_adv_stats')
 GL_DATE_REGEX = re.compile(r"^.*?(\d{1,2})/(\d{1,2})$")
 OPP_REGEX = re.compile(r"^(@|vs)(\w+)$")
 
@@ -52,7 +51,7 @@ TEAM_NAME_TO_INT = create_team_name_to_int(scraper.TEAMS)
 
 def _get_pace_diff(opp, players_team):
     # print(f"{opp} : {players_team}")
-    return PACE_RATINGS.get(opp) - PACE_RATINGS.get(players_team)
+    return TN_PACE.get(opp) - TN_PACE.get(players_team)
 
 
 ESPN_TEAM_NAME_TO_FD = {'los-angeles-clippers': 'la-clippers'}
@@ -171,8 +170,7 @@ def create_logistic_regression_pipe():
         gls_no_outliers = stats.remove_outliers_mod(gls, 'minutes_played',
                                                     -2.5, 3, False)
 
-        rest_days = stats.days_since_last_game(prop.get('prop_scraped'), gls,
-                                               prop.get('player_name'))
+        rest_days = stats.days_since_last_game(prop.get('prop_scraped'), gls)
         points_mean = np.mean([x.get('points') for x in gls_no_outliers])
         total = prop.get('game_total')
         opp = convert_team_name(prop.get('opp_name'))
@@ -322,5 +320,4 @@ def get_over_class(prop, pipeline):
 
 
 # create_logistic_regression_pipe()
-#
 # print(metrics.get_scorer_names)
