@@ -23,41 +23,10 @@ from lxml import etree
 
 #from player_stats
 from player_stats import sqllite_utils
+from player_stats import constants
 
 OPP_SCORING = "https://www.nba.com/stats/teams/opponent-shots-general"
 NBA_ADV = "https://www.nba.com/stats/teams/advanced"
-TEAMS = [
-    "https://www.espn.com/nba/team/_/name/bos/boston-celtics",
-    "https://www.espn.com/nba/team/_/name/bkn/brooklyn-nets",
-    "https://www.espn.com/nba/team/_/name/ny/new-york-knicks",
-    "https://www.espn.com/nba/team/_/name/phi/philadelphia-76ers",
-    "https://www.espn.com/nba/team/_/name/tor/toronto-raptors",
-    "https://www.espn.com/nba/team/_/name/chi/chicago-bulls",
-    "https://www.espn.com/nba/team/_/name/cle/cleveland-cavaliers",
-    "https://www.espn.com/nba/team/_/name/det/detroit-pistons",
-    "https://www.espn.com/nba/team/_/name/ind/indiana-pacers",
-    "https://www.espn.com/nba/team/_/name/mil/milwaukee-bucks",
-    "https://www.espn.com/nba/team/_/name/den/denver-nuggets",
-    "https://www.espn.com/nba/team/_/name/min/minnesota-timberwolves",
-    "https://www.espn.com/nba/team/_/name/okc/oklahoma-city-thunder",
-    "https://www.espn.com/nba/team/_/name/por/portland-trail-blazers",
-    "https://www.espn.com/nba/team/_/name/utah/utah-jazz",
-    "https://www.espn.com/nba/team/_/name/gs/golden-state-warriors",
-    "https://www.espn.com/nba/team/_/name/lac/la-clippers",
-    "https://www.espn.com/nba/team/_/name/lal/los-angeles-lakers",
-    "https://www.espn.com/nba/team/_/name/phx/phoenix-suns",
-    "https://www.espn.com/nba/team/_/name/sac/sacramento-kings",
-    "https://www.espn.com/nba/team/_/name/atl/atlanta-hawks",
-    "https://www.espn.com/nba/team/_/name/cha/charlotte-hornets",
-    "https://www.espn.com/nba/team/_/name/orl/orlando-magic",
-    "https://www.espn.com/nba/team/_/name/wsh/washington-wizards",
-    "https://www.espn.com/nba/team/_/name/dal/dallas-mavericks",
-    "https://www.espn.com/nba/team/_/name/hou/houston-rockets",
-    "https://www.espn.com/nba/team/_/name/mem/memphis-grizzlies",
-    "https://www.espn.com/nba/team/_/name/no/new-orleans-pelicans",
-    "https://www.espn.com/nba/team/_/name/sa/san-antonio-spurs",
-    "https://www.espn.com/nba/team/_/name/mia/miami-heat"
-]
 
 # Used to sploof http requests device originator
 USER_AGENTS = [
@@ -88,9 +57,6 @@ PREFS = {
     }
 }
 
-# Fanduel and ESPN have different names for the clippers..
-ESPN_TEAM_NAME_TO_FD = {'la-clippers': 'los-angeles-clippers'}
-
 retries = Retry(total=5,
                 backoff_factor=0.1,
                 status_forcelist=[500, 502, 503, 504])
@@ -99,6 +65,7 @@ session = FuturesSession(executor=ThreadPoolExecutor(max_workers=16))
 session.mount("http://", HTTPAdapter(max_retries=retries))
 CHROM_DRIVER_PATH = "/usr/bin/chromedriver"
 CHROME_OPTIONS.add_experimental_option("prefs", PREFS)
+CHROME_OPTIONS.add_argument("--window-size=800,1200")
 OPTIONS = {'proxy': {'http': PROXY_URL, 'https': PROXY_URL}}
 
 CAPABILITIES = webdriver.DesiredCapabilities.CHROME
@@ -111,72 +78,18 @@ NBA_MONTH = [
 ]
 FANDUEL_LINK = "https://sportsbook.fanduel.com"
 
-# FG, 3PT, FT parsed seperatly
-GL_TO_SQL_COL_NAMES = {
-    'Date': 'game_date',
-    'OPP': 'opp',
-    'Result': 'result',
-    'MIN': 'minutes_played',
-    'FG%': 'fg_per',
-    '3P%': 'three_pt_per',
-    'FT%': 'ft_per',
-    'REB': 'rebounds',
-    'BLK': 'blocks',
-    'STL': 'steals',
-    'PF': 'fouls',
-    'TO': 'turn_overs',
-    'PTS': 'points',
-    'AST': 'assists'
-}
-
-ADV_STATS_TO_SQL_COL_NAMES = {
-    'TEAM': 'team_name',
-    'GP': 'games_played',
-    'W': 'wins',
-    'L': 'losses',
-    'MIN': 'minutes_played',
-    'OffRtg': 'off_rtg',
-    'DefRtg': 'def_rtg',
-    'NetRtg': 'net_rtg',
-    'AST%': 'ast_per',
-    'AST/TO': 'ast_to_ratio',
-    'ASTRatio': 'ast_ratio',
-    'OREB%': 'off_rebound_per',
-    'DREB%': 'def_rebound_per',
-    'REB%': 'reb_per',
-    'TOV%': 'to_ratio',
-    'eFG%': 'eff_fg_per',
-    'TS%': 'true_shotting_per',
-    'PACE': 'pace',
-    'PIE': 'player_impact_est',
-    'POSS': 'possions'
-}
-
-OPP_SCORING_TO_SQL_COL_NAMES = {
-    'TEAM': 'team_name',
-    'GP': 'games_played',
-    'G': 'games',
-    'Freq%': 'fg_freq',
-    'FGM': 'fg_made',
-    'FGA': 'fg_att',
-    'FG%': 'fg_per',
-    'eFG%': 'fg_eff_per',
-    '2FG Freq%': 'two_pt_freq',
-    '2FGM': 'two_pt_made',
-    '2FGA': 'two_pt_att',
-    '2FG%': 'two_pt_per',
-    '3FG Freq%': 'three_pt_freq',
-    '3PM': 'three_pt_made',
-    '3PA': 'three_pt_att',
-    '3P%': 'three_pt_per'
-}
-
 DB_CUR = sqllite_utils.get_conn()
 
-PROP_XPATH = "/html/body/div[1]/div/div[1]/main/div/div[1]/div/div[2]/div[4]/ul/li[2]/div/div/div[3]/div/div"
-PLAYER_DIV_XPATH = "/html/body/div[1]/div/div[1]/main/div/div[1]/div/div[2]/div[4]/ul/li[2]/div/div/div[3]/div[1]"
-SHOW_XPATH = '//*[@id="main"]/div/div[1]/div/div[2]/div[4]/ul/li[2]/div/div/div[4]/div/div/div'
-HIDE_XPATH = '//*[@id="main"]/div/div[1]/div/div[2]/div[4]/ul/li[2]/div/div/div[4]/div/div/div'
+# These change depending on the size of the window
+# Title of bets section so Player Points
+PROP_TITLE_XPATH = "/html/body/div[1]/div/div/div[1]/main/div/div[1]/div/div[2]/div[4]/ul/li[2]/div/div/div[1]/div/div[1]/span"
+# div of individual bet rows, changing when you shrink the window
+PLAYER_DIV_XPATH = "/html/body/div[1]/div/div/div[1]/main/div/div[1]/div/div[2]/div[4]/ul/li[2]/div/div/div[3]/div[1]/div"
+SHOW_XPATH = '/html/body/div[1]/div/div/div[1]/main/div/div[1]/div/div[2]/div[4]/ul/li[2]/div/div/div[4]/div/div/div/span'
+# Section on the front page containing the game info
+GAME_LINES_XPATH = "/html/body/div[1]/div/div/div[1]/main/div/div[1]/div/div[2]/div[4]/ul/li[2]/div/div/div[3]/div/div"
+# The live page above game time, used to skipping live bets
+LIVE_XPATH = "/html/body/div[1]/div/div/div[2]/div[2]/main/div/div[1]/div/div[2]/div[2]/div/div[3]/div[1]/svg"
 
 
 def _scrape(url):
@@ -229,7 +142,7 @@ def _scrape_js_page(url):
                                   chrome_options=CHROME_OPTIONS,
                                   desired_capabilities=CAPABILITIES)
 
-        driver.set_page_load_timeout(20)
+        driver.set_page_load_timeout(30)
         try:
             driver.get(url)
             if driver.page_source is None:
@@ -376,7 +289,7 @@ def _month_contains_team_switch(tbody):
     return False
 
 
-# FG, 3PT, FT parsed seperatly
+# FG, 3PT, FT made and attempt shown in same field
 def _insert_gl_into_db(player_name, team_name, col_names, game_log, season):
     db_entry = {
         'player_name': player_name,
@@ -396,10 +309,10 @@ def _insert_gl_into_db(player_name, team_name, col_names, game_log, season):
             db_entry['ft_made'] = stat.split('-')[0]
             db_entry['ft_att'] = stat.split('-')[1]
         else:
-            if GL_TO_SQL_COL_NAMES.get(col_name) is None:
+            if constants.GL_TO_SQL_COL_NAMES.get(col_name) is None:
                 raise Exception(
                     f"Missing header in conversion dict {col_name}")
-            db_entry[GL_TO_SQL_COL_NAMES.get(col_name)] = stat
+            db_entry[constants.GL_TO_SQL_COL_NAMES.get(col_name)] = stat
     sqllite_utils.insert_player_gamelogs(db_entry, DB_CUR)
 
 
@@ -440,6 +353,7 @@ def _add_gamelogs_to_db(resp_future_for_name, team_name, season):
                 continue
 
             col_names = [x.text for x in thead.find("tr").findChildren("th")]
+            # Stop scraping after feb deadline
             switched_teams = _month_contains_team_switch(tbody)
             stats = _parse_gamelog_tbody(tbody)
 
@@ -470,7 +384,7 @@ def update_player_gamelogs(season):
         then get their game logs and append any new game
         to the sqllite database.
     """
-    for team_url in TEAMS:
+    for team_url in constants.NBA_TEAMS:
         print(f"Working on {team_url}")
         future_for_player_name = {}
         for name, link in _get_top_players_gl_links(team_url, season).items():
@@ -501,7 +415,8 @@ def update_nba_adv_stats():
         for stat_row in stats:
             # remove col_num
             del stat_row[0]
-            _insert_team_stats(stat_row, col_names, ADV_STATS_TO_SQL_COL_NAMES,
+            _insert_team_stats(stat_row, col_names,
+                               constants.ADV_STATS_TO_SQL_COL_NAMES,
                                sqllite_utils.insert_adv_team_stats)
 
 
@@ -522,7 +437,7 @@ def update_nba_opp_scoring():
         stats = _parse_gamelog_tbody(tbody)
         for stat_row in stats:
             _insert_team_stats(stat_row, col_names,
-                               OPP_SCORING_TO_SQL_COL_NAMES,
+                               constants.OPP_SCORING_TO_SQL_COL_NAMES,
                                sqllite_utils.insert_opp_scoring_stats)
 
 
@@ -548,9 +463,9 @@ def _get_game_links(soup):
 
 
 def _convert_team_name(team_name):
-    if ESPN_TEAM_NAME_TO_FD.get(team_name) is None:
+    if constants.ESPN_TEAM_NAME_TO_FD.get(team_name) is None:
         return team_name
-    return ESPN_TEAM_NAME_TO_FD.get(team_name)
+    return constants.ESPN_TEAM_NAME_TO_FD.get(team_name)
 
 
 def _insert_prop(spreads: dict, total, link, prop_name):
@@ -558,7 +473,23 @@ def _insert_prop(spreads: dict, total, link, prop_name):
     soup = BeautifulSoup(page_source, "html.parser")
     # PyLint warning because C import
     dom = etree.HTML(str(soup))
-    player_class = dom.xpath(PLAYER_DIV_XPATH)[0].attrib['class']
+    player_etree = dom.xpath(PLAYER_DIV_XPATH)
+    if len(player_etree) == 0:
+        print("First has no bets.")
+        return
+    player_class = player_etree[0].attrib['class']
+    # So we can find out if on right page
+    title_class = dom.xpath(PROP_TITLE_XPATH)[0].attrib['class']
+
+    title = soup.find(
+        "span", {
+            "class": lambda value: value and value.startswith(title_class)
+        },
+        recursive=True).text
+
+    if title.find(prop_name.capitalize()) == -1:
+        print(f"Couldn't find title: {prop_name}")
+        return
 
     player_divs = soup.find_all(
         "div",
@@ -615,7 +546,14 @@ def update_todays_player_props():
         spreads = {}
         soup = BeautifulSoup(_scrape_js_page(link), "html.parser")
         dom = etree.HTML(str(soup))
-        div_class = dom.xpath(PROP_XPATH)[0].attrib['class']
+
+        live_path = dom.xpath(LIVE_XPATH)
+        if len(live_path) > 0:
+            print("Skipping live game ")
+            continue
+
+        div_path = dom.xpath(GAME_LINES_XPATH)
+        div_class = div_path[0].attrib['class']
 
         div = soup.find('div', {'class': div_class}, recursive=True)
         game_spans = []

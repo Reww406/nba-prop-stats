@@ -1,33 +1,31 @@
 from datetime import date
 import re
-import json
-import shutil
-import time
-import matplotlib
+
 from matplotlib import pyplot as plt
 import numpy as np
-import pandas as pd
-import matplotlib.backends.backend_pdf
-from pygam import GAM, LinearGAM, s, f, te, l
-from sklearn.model_selection import train_test_split
 
 from player_stats import stats
 from player_stats import sqllite_utils
-from player_stats import scraper
+from player_stats import constants
 
 DB_CONN = sqllite_utils.get_conn()
-NBA_SEASON_KEY = '2022-23'
 NAME_LINK_REGEX = re.compile(r"^.*?/name/(\w+)/(.*?)$", re.IGNORECASE)
 
-PACE_RATINGS = sqllite_utils.get_team_name_and_pace(DB_CONN)
-TOP_2PT_D = sqllite_utils.get_team_name_and_2pt_made(DB_CONN)
-TOP_3PT_D = sqllite_utils.get_team_name_and_3pt_made(DB_CONN)
-TOP_DEF_RTG = sqllite_utils.get_team_name_and_def_rating(DB_CONN)
-TOP_DEF_RB_PER = sqllite_utils.get_team_name_and_def_rb(DB_CONN)
-TOP_OFF_RB_PER = sqllite_utils.get_n_off_rb(30, True, DB_CONN)
+PACE_RATINGS = sqllite_utils.get_team_name_and_stat(DB_CONN, 'pace',
+                                                    'nba_adv_stats')
+TOP_2PT_D = sqllite_utils.get_team_name_and_stat(DB_CONN, 'two_pt_made',
+                                                 'opp_scoring')
+TOP_3PT_D = sqllite_utils.get_team_name_and_stat(DB_CONN, 'three_pt_made',
+                                                 'opp_scoring')
+TOP_DEF_RTG = sqllite_utils.get_team_name_and_stat(DB_CONN, 'def_rtg',
+                                                   'nba_adv_stats')
+TOP_DEF_RB_PER = sqllite_utils.get_team_name_and_stat(DB_CONN,
+                                                      'def_rebound_per',
+                                                      'nba_adv_stats')
+TOP_OFF_RB_PER = sqllite_utils.get_n_team_stats(30, True, 'nba_adv_stats',
+                                                'off_rebound_per', DB_CONN)
 
 OPP_REGEX = re.compile(r"^(@|vs)(\w+)$")
-
 RESULT_REGEX = re.compile(r"^(W|L)(\d{2,3})-(\d{2,3}).*?$")
 
 
@@ -36,27 +34,13 @@ def _get_pace_diff(opp, players_team):
     return PACE_RATINGS.get(opp) - PACE_RATINGS.get(players_team)
 
 
-def create_int_to_team_name(team_urls):
-    r"""
-        Creates dict with team_name : initial
-    """
-    team_name_to_int = {}
-    for url in team_urls:
-        match = NAME_LINK_REGEX.match(url.strip())
-        team_name_to_int[match.group(1).upper()] = match.group(2)
-    return team_name_to_int
-
-
-ESPN_TEAM_NAME_TO_FD = {'los-angeles-clippers': 'la-clippers'}
-
-
 def convert_team_name(team_name):
     """
         Fixes the clippers name
     """
-    if ESPN_TEAM_NAME_TO_FD.get(team_name) is None:
+    if constants.ESPN_TEAM_NAME_TO_FD.get(team_name) is None:
         return team_name
-    return ESPN_TEAM_NAME_TO_FD.get(team_name)
+    return constants.ESPN_TEAM_NAME_TO_FD.get(team_name)
 
 
 def _corr(y, x, y_name, x_name, player_name):
@@ -106,10 +90,9 @@ def store_correlations():
     """_summary_
     """
     unqiue_players = sqllite_utils.get_unique_player_names(DB_CONN)
-    int_to_team_name = create_int_to_team_name(scraper.TEAMS)
     for player in unqiue_players:
         player_gls = sqllite_utils.get_player_gls(player.get('player_name'),
-                                                  NBA_SEASON_KEY,
+                                                  constants.NBA_CURR_SEASON,
                                                   player.get('team_name'),
                                                   DB_CONN)
 
@@ -123,8 +106,8 @@ def store_correlations():
 
         player_name = player.get('player_name')
         opps = [
-            int_to_team_name.get(OPP_REGEX.match(gl.get('opp')).group(2))
-            for gl in player_gls
+            constants.INT_TO_TEAM_NAME.get(
+                OPP_REGEX.match(gl.get('opp')).group(2)) for gl in player_gls
         ]
         pace_corr = _corr(points, [
             _get_pace_diff(opp, convert_team_name(player.get('team_name')))
@@ -189,11 +172,14 @@ def store_correlations():
 
 
 def three_point_freq():
+    """
+        Three point freq
+    """
     unqiue_players = sqllite_utils.get_unique_player_names(DB_CONN)
     freqs = []
     for player in unqiue_players:
         player_gls = sqllite_utils.get_player_gls(player.get('player_name'),
-                                                  NBA_SEASON_KEY,
+                                                  constants.NBA_CURR_SEASON,
                                                   player.get('team_name'),
                                                   DB_CONN)
         freqs.append(stats.get_3_pt_freq(player_gls))
@@ -229,5 +215,3 @@ print(
 print(
     f"rest_corr: {np.mean(sqllite_utils.get_array_of_correlations('rest_corr', DB_CONN))}"
 )
-
-

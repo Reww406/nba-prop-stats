@@ -10,8 +10,10 @@ import matplotlib.backends.backend_pdf
 import pandas as pd
 
 from player_stats import stats
-from player_stats import sqllite_utils
 from player_stats import scraper
+from player_stats import sqllite_utils
+from player_stats import constants
+
 import logreg
 
 GAME_REGEX = re.compile(r"^\w+\s*@\s*\w+$", re.IGNORECASE)
@@ -59,7 +61,7 @@ def build_graphic(data_f, game, spread):
                   fontsize=10)
         axis.text(x=3.5,
                   y=row,
-                  s=d['over'],
+                  s=d['edge'],
                   va='center',
                   ha='left',
                   fontsize=10)
@@ -80,8 +82,8 @@ def build_graphic(data_f, game, spread):
     axis.text(0.2, rows, 'Player', weight='bold', ha='left')
     axis.text(1.5, rows, 'Prop', weight='bold', ha='left')
     axis.text(2.5, rows, 'Odds', weight='bold', ha='left')
-    axis.text(3.5, rows, 'ATO %', weight='bold', ha='left')
-    axis.text(4.5, rows, 'Class Proba', weight='bold', ha='left')
+    axis.text(3.5, rows, 'Edge', weight='bold', ha='left')
+    axis.text(4.5, rows, 'Probability', weight='bold', ha='left')
     axis.text(5.5, rows, 'Class', weight='bold', ha='left')
 
     # Creates lines
@@ -129,6 +131,19 @@ def beatuify_name(name: str):
     name_split = [name.capitalize() for name in name_split]
     return " ".join(name_split)
 
+
+def _calculate_edge(odds, proba):
+    implied_proba = 0
+    if odds > 0:
+        # poss
+        implied_proba = (100 / (odds + 100))
+    else:
+        # neg
+        implied_proba = (-1 * (odds)) / (-1 * (odds) + 100)
+    edge = '{:.2f}'.format((proba - implied_proba) * 100) + "%"
+    return edge
+
+
 # Main function
 def main(prop_date):
     """
@@ -142,25 +157,39 @@ def main(prop_date):
             'id': [],
             'prop': [],
             'odds': [],
-            'over': [],
+            'edge': [],
             'over_proba': [],
             'over_class': []
         }
         t_props = get_team_props(props, team)
         spread = t_props[0].get('team_spread')
         for t_prop in t_props:
-            over_under = stats.get_points_ats(t_prop)
+            class_and_proba = logreg.get_class_and_proba(t_prop, log_reg)
+
+            odds_num = 'Nan'
+            odds = 'Nan'
+            if class_and_proba is None:
+                continue
+
+            proba_class = class_and_proba[0]
+            proba = class_and_proba[1]
+            if class_and_proba[0] == "Pick Over":
+                odds_num = f"o{t_prop.get('over_num')}"
+                odds = t_prop.get('over_odds')
+            else:
+                odds_num = f"u{t_prop.get('under_num')}"
+                odds = t_prop.get('under_odds')
+
+            edge = _calculate_edge(odds, float(class_and_proba[1]))
+
             team_dict.get('id').append(beatuify_name(
                 t_prop.get('player_name')))
             team_dict.get('prop').append(beatuify_name(
                 t_prop.get('prop_name')))
-            team_dict.get('odds').append(
-                f"o{t_prop.get('over_num')} {t_prop.get('over_odds')}")
-            team_dict.get('over').append(over_under)
-            team_dict.get('over_proba').append(
-                logreg.get_class_proba(t_prop, log_reg))
-            team_dict.get('over_class').append(
-                logreg.get_over_class(t_prop, log_reg))
+            team_dict.get('odds').append(f"{odds_num} {odds}")
+            team_dict.get('edge').append(edge)
+            team_dict.get('over_proba').append(proba)
+            team_dict.get('over_class').append(proba_class)
         figs.append(build_graphic(pd.DataFrame(team_dict), team, spread))
     pdf = matplotlib.backends.backend_pdf.PdfPages("./reports/" + START_TIME +
                                                    '-report.pdf')
@@ -169,9 +198,21 @@ def main(prop_date):
     pdf.close()
 
 
+def check_star_players_list():
+    for team, players in constants.TEAM_TO_STAR_PLAYERS.items():
+        for player in players:
+            gls = sqllite_utils.get_player_gls(player,
+                                               constants.NBA_CURR_SEASON, team,
+                                               DB_CON)
+            if len(gls) == 0:
+                print(f"couldn't find {team} {player}")
+
+
 # scraper.update_nba_adv_stats()
 # scraper.update_nba_opp_scoring()
-scraper.update_player_gamelogs('2021-22')
+# scraper.update_player_gamelogs('2022-23')
 # scraper.update_todays_player_props()
 
-# main("01-20-2023", False)
+# check_star_players_list()
+
+main("01-28-2023")

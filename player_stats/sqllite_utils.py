@@ -5,6 +5,8 @@
 
 import sqlite3
 
+import numpy as np
+
 
 # returns row as dictionary
 def _dict_factory(cursor, row):
@@ -155,6 +157,7 @@ def get_point_props(date, cur):
     """
     return cur.execute(select_statement, (date, )).fetchall()
 
+
 def get_player_gls(player_name, season, team_name, cur):
     """
       Get's all game logs for player and section
@@ -164,6 +167,19 @@ def get_player_gls(player_name, season, team_name, cur):
     """
     return cur.execute(select_statement,
                        (player_name + '%', team_name, season)).fetchall()
+
+
+def get_player_gl(player_name, season, team_name, date, cur):
+    """
+      Get's all game logs for player and section
+    """
+    select_statement = """
+      SELECT * FROM player_gl WHERE player_name LIKE ? and team_name = ? 
+      and season = ? and game_date LIKE ?
+    """
+    return cur.execute(
+        select_statement,
+        (player_name + '%', team_name, season, '%' + date)).fetchone()
 
 
 def get_player_games_vs_opp(player_name, season, team_name, opp, cur):
@@ -192,16 +208,17 @@ def get_team_name_and_stat(cur, stat_key, stat_table):
     return team_name_and_stat
 
 
-def get_points_for_game(name, team_name, game_date, cur):
+def get_points_for_game(name, team_name, game_date, season, cur):
     """
         Get points and minutes played for game.
     """
     top_select = """
       SELECT points, minutes_played FROM player_gl WHERE player_name LIKE ? AND 
-        team_name = ? AND game_date LIKE ?
+        team_name = ? AND game_date LIKE ? and season = ?
     """
-    return cur.execute(top_select,
-                       (name + '%', team_name, '%' + game_date)).fetchone()
+    return cur.execute(
+        top_select,
+        (name + '%', team_name, '%' + game_date, season)).fetchone()
 
 
 def get_n_team_stats(num, desc, table, stat, cur):
@@ -262,3 +279,30 @@ def get_all_props_for_type(prop_type, cur):
       SELECT * FROM props WHERE prop_name = ?
     """
     return cur.execute(select, (prop_type, )).fetchall()
+
+
+def get_all_columns_for_prop(column, prop_name, player_name, team_name, cur):
+    """
+        Player props
+    """
+    select = f"""
+      SELECT {column} FROM props WHERE player_name LIKE ? and team_name = ? and prop_name = ?
+    """
+    return [
+        col.get(column)
+        for col in cur.execute(select, (player_name + '%', team_name,
+                                        prop_name)).fetchall()
+    ]
+
+
+def get_sum_of_stat(player_name, team_name, season, stat, cur):
+    """
+        Get sum of column
+    """
+    select = f"""
+      SELECT {stat} FROM player_gl WHERE player_name LIKE ? and team_name = ? and season = ?
+    """
+    return np.sum([
+        col[stat] for col in cur.execute(select, (player_name + '%', team_name,
+                                                  season)).fetchall()
+    ])

@@ -9,15 +9,14 @@ import pandas as pd
 from datetime import date
 
 from player_stats import sqllite_utils
+from player_stats import constants
 
 SCORE_REGEX = re.compile(r"^[WLT]{1}(\d+)[\-]{1}(\d+).*?$")
 OPP_REGEX = re.compile(r"^(@|vs)(\w+)$")
 DB_CON = sqllite_utils.get_db_in_mem()
-NBA_SEASON_KEY = '2022-23'
 NAME_LINK_REGEX = re.compile(r"^.*?/name/(\w+)/(.*?)$", re.IGNORECASE)
 RESULT_REGEX = re.compile(r"^(W|L)(\d{2,3})-(\d{2,3}).*?$")
 GL_DATE_REGEX = re.compile(r"^.*?(\d{1,2})/(\d{1,2})$")
-ESPN_TEAM_NAME_TO_FD = {'los-angeles-clippers': 'la-clippers'}
 
 TOP_3PT_D = sqllite_utils.get_n_team_stats(12, False, 'opp_scoring',
                                            'three_pt_made', DB_CON)
@@ -114,9 +113,9 @@ def convert_team_name(team_name):
     """
         Fixes the clippers name
     """
-    if ESPN_TEAM_NAME_TO_FD.get(team_name) is None:
+    if constants.ESPN_TEAM_NAME_TO_FD.get(team_name) is None:
         return team_name
-    return ESPN_TEAM_NAME_TO_FD.get(team_name)
+    return constants.ESPN_TEAM_NAME_TO_FD.get(team_name)
 
 
 # IF total = 0 it was locked
@@ -167,12 +166,20 @@ def get_stat_mean_for_player(player_name, team_name, stat_key):
     """
         get mean of stat
     """
-    player_gls = sqllite_utils.get_player_gls(player_name, NBA_SEASON_KEY,
+    player_gls = sqllite_utils.get_player_gls(player_name,
+                                              constants.NBA_CURR_SEASON,
                                               team_name, DB_CON)
+    player_gls.extend(
+        sqllite_utils.get_player_gls(player_name, constants.NBA_LAST_SEASON,
+                                     team_name, DB_CON))
     gls_no_outliers = remove_outliers_mod(player_gls, 'minutes_played', -2.6,
                                           3, False)
 
     stats = [x.get(stat_key) for x in gls_no_outliers]
+
+    if len(stats) == 0:
+        return None
+
     return float("{:.1f}".format(np.mean(stats)))
 
 
@@ -186,7 +193,7 @@ def points_histogram():
         all_gls.extend(
             remove_outliers_mod(
                 sqllite_utils.get_player_gls(player.get('player_name'),
-                                             NBA_SEASON_KEY,
+                                             constants.NBA_CURR_SEASON,
                                              player.get('team_name'), DB_CON),
                 'minutes_played', -2.6, 3, False))
 
