@@ -110,41 +110,6 @@ def is_same_date(prop_date, game_date, season):
     return prop_date == game_date
 
 
-def calculate_eff_fg_per(player_name, team_name, season):
-    """
-        Calculate effective fg percentage
-    """
-    # (FGM + 0.5 * 3PM) / FGA
-    fg_made = sqllite_utils.get_sum_of_stat(player_name, team_name, season,
-                                            'fg_made', DB_CON)
-    three_pt_made = sqllite_utils.get_sum_of_stat(player_name, team_name,
-                                                  season, 'three_pt_made',
-                                                  DB_CON)
-    fg_att = sqllite_utils.get_sum_of_stat(player_name, team_name, season,
-                                           'fg_att', DB_CON)
-    # Avoid divide by zero
-    if fg_att == 0:
-        return 0
-    return ((fg_made + 0.5 * three_pt_made) / fg_att)
-
-
-def calculate_true_shooting_per(player_name, team_name, season):
-    """
-        Uses true shooting percentage formula
-    """
-    pts = sqllite_utils.get_sum_of_stat(player_name, team_name, season,
-                                        'points', DB_CON)
-    fg_att = sqllite_utils.get_sum_of_stat(player_name, team_name, season,
-                                           'fg_att', DB_CON)
-
-    ft_att = sqllite_utils.get_sum_of_stat(player_name, team_name, season,
-                                           'ft_att', DB_CON)
-    if (2 * (fg_att + (0.44 * ft_att))) == 0:
-        return 0
-
-    return (pts / (2 * (fg_att + (0.44 * ft_att)))) * 100
-
-
 def get_past_performance(prop):
     """
         Finds games played against this opp by this player
@@ -208,44 +173,13 @@ def is_star_player_out(team, season, prop_date):
     return missing
 
 
-def _convert_gl_date_to_obj(g_date, season):
-    season_splt = season.split('-')
-    game_date_match = GL_DATE_REGEX.match(g_date)
-    if game_date_match.group(1) == '1':
-        year = int(season_splt[0][0:2] + season_splt[1])
-    else:
-        year = int(season_splt[0])
-    return date(year, int(game_date_match.group(1)),
-                int(game_date_match.group(2)))
-
-
-# FIXME needs to take into account current date for test data
-def point_avg_last_nth_games(player, team, start_date, nth):
-    """
-        Gets Averge points of nth last games
-    """
-    gls = sqllite_utils.get_player_gls(player, constants.NBA_CURR_SEASON, team,
-                                       DB_CON)
-    gls_with_date = []
-    for gl in gls:
-        game_date = _convert_gl_date_to_obj(gl.get('game_date'),
-                                            constants.NBA_CURR_SEASON)
-        if game_date < start_date:
-            gl['real_date'] = game_date
-            gls_with_date.append(gl)
-
-    sorted_gls = sorted(gls_with_date, key=lambda d: d['real_date'])
-    # print(
-    #     f"{start_date} - { sorted_gls[-1].get('real_date')} - { sorted_gls[-1].get('points')}"
-    # )
-    return np.mean([gl.get('points') for gl in sorted_gls[-nth:]])
-
-
 def create_logistic_regression_pipe():
     """
         Creates logistic regression pipeline
     """
     props = sqllite_utils.get_all_props_for_type('points', DB_CON)
+    
+    
     prop_with_results = add_over_hit(props)
     print(f"Samples: {len(prop_with_results)}")
     get_per_over(prop_with_results)
@@ -261,17 +195,17 @@ def create_logistic_regression_pipe():
                                                        prop.get('team_name'),
                                                        DB_CON)
 
-        eff_fg_per = calculate_eff_fg_per(player_name, team_name,
-                                          prop.get('season'))
+        eff_fg_per = stats.calculate_eff_fg_per(player_name, team_name,
+                                                prop.get('season'))
 
-        true_shooting_per = calculate_true_shooting_per(
+        true_shooting_per = stats.calculate_true_shooting_per(
             player_name, team_name, prop.get('season'))
 
         prop_date_arr = prop.get('prop_scraped').split('-')
         prop_date = date(int(prop_date_arr[2]), int(prop_date_arr[0]),
                          int(prop_date_arr[1]))
-        recent_performance = point_avg_last_nth_games(player_name, team_name,
-                                                      prop_date, 2)
+        recent_performance = stats.point_avg_last_nth_games(
+            player_name, team_name, prop_date, 2)
 
         player_avg_over = np.mean(overs)
         over_diff = player_avg_over - prop.get('over_num')
@@ -355,8 +289,8 @@ def get_class_and_proba(prop, pipeline):
                                                    prop.get('team_name'),
                                                    DB_CON)
 
-    eff_fg_per = calculate_eff_fg_per(player_name, team_name,
-                                      prop.get('season'))
+    eff_fg_per = stats.calculate_eff_fg_per(player_name, team_name,
+                                            prop.get('season'))
 
     player_avg_over = np.mean(overs)
     over_diff = player_avg_over - prop.get('over_num')
@@ -375,8 +309,8 @@ def get_class_and_proba(prop, pipeline):
     prop_date_arr = prop.get('prop_scraped').split('-')
     prop_date = date(int(prop_date_arr[2]), int(prop_date_arr[0]),
                      int(prop_date_arr[1]))
-    recent_performance = point_avg_last_nth_games(player_name, team_name,
-                                                  prop_date, 2)
+    recent_performance = stats.point_avg_last_nth_games(
+        player_name, team_name, prop_date, 2)
     data = [{
         "total_pace": total_pace,
         "conistency": player_consistency,

@@ -118,6 +118,73 @@ def convert_team_name(team_name):
     return constants.ESPN_TEAM_NAME_TO_FD.get(team_name)
 
 
+def _convert_gl_date_to_obj(g_date, season):
+    season_splt = season.split('-')
+    game_date_match = GL_DATE_REGEX.match(g_date)
+    if game_date_match.group(1) == '1':
+        year = int(season_splt[0][0:2] + season_splt[1])
+    else:
+        year = int(season_splt[0])
+    return date(year, int(game_date_match.group(1)),
+                int(game_date_match.group(2)))
+
+
+def calculate_eff_fg_per(player_name, team_name, season):
+    """
+        Calculate effective fg percentage
+    """
+    # (FGM + 0.5 * 3PM) / FGA
+    fg_made = sqllite_utils.get_sum_of_stat(player_name, team_name, season,
+                                            'fg_made', DB_CON)
+    three_pt_made = sqllite_utils.get_sum_of_stat(player_name, team_name,
+                                                  season, 'three_pt_made',
+                                                  DB_CON)
+    fg_att = sqllite_utils.get_sum_of_stat(player_name, team_name, season,
+                                           'fg_att', DB_CON)
+    # Avoid divide by zero
+    if fg_att == 0:
+        return 0
+    return ((fg_made + 0.5 * three_pt_made) / fg_att)
+
+
+def calculate_true_shooting_per(player_name, team_name, season):
+    """
+        Uses true shooting percentage formula
+    """
+    pts = sqllite_utils.get_sum_of_stat(player_name, team_name, season,
+                                        'points', DB_CON)
+    fg_att = sqllite_utils.get_sum_of_stat(player_name, team_name, season,
+                                           'fg_att', DB_CON)
+
+    ft_att = sqllite_utils.get_sum_of_stat(player_name, team_name, season,
+                                           'ft_att', DB_CON)
+    if (2 * (fg_att + (0.44 * ft_att))) == 0:
+        return 0
+
+    return (pts / (2 * (fg_att + (0.44 * ft_att)))) * 100
+
+
+def point_avg_last_nth_games(player, team, start_date, nth):
+    """
+        Gets Averge points of nth last games
+    """
+    gls = sqllite_utils.get_player_gls(player, constants.NBA_CURR_SEASON, team,
+                                       DB_CON)
+    gls_with_date = []
+    for gl in gls:
+        game_date = _convert_gl_date_to_obj(gl.get('game_date'),
+                                            constants.NBA_CURR_SEASON)
+        if game_date < start_date:
+            gl['real_date'] = game_date
+            gls_with_date.append(gl)
+
+    sorted_gls = sorted(gls_with_date, key=lambda d: d['real_date'])
+    # print(
+    #     f"{start_date} - { sorted_gls[-1].get('real_date')} - { sorted_gls[-1].get('points')}"
+    # )
+    return np.mean([gl.get('points') for gl in sorted_gls[-nth:]])
+
+
 # IF total = 0 it was locked
 # Spread and total
 def get_points_ats(prop_dict):
