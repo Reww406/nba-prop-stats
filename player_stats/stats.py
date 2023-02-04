@@ -129,18 +129,15 @@ def _convert_gl_date_to_obj(g_date, season):
                 int(game_date_match.group(2)))
 
 
-def calculate_eff_fg_per(player_name, team_name, season):
+def calculate_eff_fg_per(gamelogs):
     """
         Calculate effective fg percentage
     """
+
     # (FGM + 0.5 * 3PM) / FGA
-    fg_made = sqllite_utils.get_sum_of_stat(player_name, team_name, season,
-                                            'fg_made', DB_CON)
-    three_pt_made = sqllite_utils.get_sum_of_stat(player_name, team_name,
-                                                  season, 'three_pt_made',
-                                                  DB_CON)
-    fg_att = sqllite_utils.get_sum_of_stat(player_name, team_name, season,
-                                           'fg_att', DB_CON)
+    fg_made = np.sum([col['fg_made'] for col in gamelogs])
+    three_pt_made = np.sum([col['three_pt_made'] for col in gamelogs])
+    fg_att = np.sum([col['fg_att'] for col in gamelogs])
     # Avoid divide by zero
     if fg_att == 0:
         return 0
@@ -164,16 +161,18 @@ def calculate_true_shooting_per(player_name, team_name, season):
     return (pts / (2 * (fg_att + (0.44 * ft_att)))) * 100
 
 
-def point_avg_last_nth_games(player, team, start_date, nth):
+def point_avg_last_nth_games(gls, start_date, nth):
     """
         Gets Averge points of nth last games
     """
-    gls = sqllite_utils.get_player_gls(player, constants.NBA_CURR_SEASON, team,
-                                       DB_CON)
     gls_with_date = []
     for gl in gls:
         game_date = _convert_gl_date_to_obj(gl.get('game_date'),
                                             constants.NBA_CURR_SEASON)
+
+        if gl.get('minutes_played') <= 15:
+            continue
+
         if game_date < start_date:
             gl['real_date'] = game_date
             gls_with_date.append(gl)
@@ -183,6 +182,87 @@ def point_avg_last_nth_games(player, team, start_date, nth):
     #     f"{start_date} - { sorted_gls[-1].get('real_date')} - { sorted_gls[-1].get('points')}"
     # )
     return np.mean([gl.get('points') for gl in sorted_gls[-nth:]])
+
+
+def get_recent_games(gls, start_date, nth):
+    """
+        Gets Averge points of nth last games
+    """
+    gls_with_date = []
+    for gl in gls:
+        game_date = _convert_gl_date_to_obj(gl.get('game_date'),
+                                            constants.NBA_CURR_SEASON)
+
+        if gl.get('minutes_played') <= 15:
+            continue
+
+        if game_date < start_date:
+            gl['real_date'] = game_date
+            gls_with_date.append(gl)
+
+    sorted_gls = sorted(gls_with_date, key=lambda d: d['real_date'])
+    # print(
+    #     f"{start_date} - { sorted_gls[-1].get('real_date')} - { sorted_gls[-1].get('points')}"
+    # )
+    return [gl for gl in sorted_gls[-nth:]]
+
+
+def get_teams_with_similar_pace(pace):
+    pace_and_team = [{
+        'team_name': key,
+        'pace': value
+    } for (key, value) in TEAM_NAME_PACE.items()]
+
+    sorted_pace_and_team = sorted(pace_and_team, key=lambda d: d['pace'])
+    index = 0
+    # Find index of pace
+    for i, value in enumerate(sorted_pace_and_team):
+        if value.get('pace') == pace:
+            index = i
+            break
+
+    if index == len(sorted_pace_and_team) - 1:
+        return [x.get('team_name') for x in sorted_pace_and_team[-5:-1]]
+    elif index == 0:
+        return [x.get('team_name') for x in sorted_pace_and_team[1:5]]
+    else:
+        list = [
+            x.get('team_name') for x in sorted_pace_and_team[index - 2:index]
+        ]
+        list.extend([
+            x.get('team_name')
+            for x in sorted_pace_and_team[index + 1:index + 3]
+        ])
+        return list
+
+
+def get_teams_with_similar_def(def_rtg):
+    pace_and_team = [{
+        'team_name': key,
+        'def_rtg': value
+    } for (key, value) in DEF_RTG.items()]
+
+    sorted_def_and_team = sorted(pace_and_team, key=lambda d: d['def_rtg'])
+    index = 0
+    # Find index of pace
+    for i, value in enumerate(sorted_def_and_team):
+        if value.get('def_rtg') == def_rtg:
+            index = i
+            break
+
+    if index == len(sorted_def_and_team) - 1:
+        return [x.get('team_name') for x in sorted_def_and_team[-5:-1]]
+    elif index == 0:
+        return [x.get('team_name') for x in sorted_def_and_team[1:5]]
+    else:
+        list = [
+            x.get('team_name') for x in sorted_def_and_team[index - 2:index]
+        ]
+        list.extend([
+            x.get('team_name')
+            for x in sorted_def_and_team[index + 1:index + 3]
+        ])
+        return list
 
 
 # IF total = 0 it was locked
@@ -256,7 +336,7 @@ def points_histogram():
         grabs data from Sqlite3
     """
     all_gls = []
-    for player in sqllite_utils.get_unique_player_names(DB_CON):
+    for player in sqllite_utils.get_unique_player_and_team(DB_CON):
         all_gls.extend(
             remove_outliers_mod(
                 sqllite_utils.get_player_gls(player.get('player_name'),

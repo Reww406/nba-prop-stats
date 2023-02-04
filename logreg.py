@@ -1,9 +1,11 @@
 from datetime import date
 import re
+import time
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn import metrics
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
 from sklearn.metrics import classification_report, precision_score, roc_auc_score
@@ -82,6 +84,29 @@ def add_over_hit(props):
             prop['over_hit'] = 0
             props_with_result.append(prop)
     return props_with_result
+
+
+def get_alt_hit(prop, alt_line):
+    """
+        1 is over, 0 is under
+    """
+    date = convert_prop_date_to_game(prop.get('prop_scraped'))
+    game_log = sqllite_utils.get_points_for_game(
+        prop.get('player_name'), convert_team_name(prop.get('team_name')),
+        date, constants.NBA_CURR_SEASON, DB_CON)
+
+    if prop.get('game_total') == 0:
+        return None
+
+    if game_log is None:
+        return None
+
+    if game_log.get('minutes_played') < 15:
+        return None
+
+    if game_log.get('points') > alt_line:
+        return 1
+    return 0
 
 
 def get_per_over(props):
@@ -173,78 +198,150 @@ def is_star_player_out(team, season, prop_date):
     return missing
 
 
-def create_logistic_regression_pipe():
+def create_alt_point_lines(props):
+    alt_point_props = []
+    alt_overs = [9.5, 14.5, 19.5, 24.5, 29.5]
+    for prop in props:
+        for alt_line in alt_overs:
+            alt_hit = get_alt_hit(prop, alt_line)
+            if alt_hit is None:
+                continue
+            alt_point_props.append({
+                'season': prop.get('season'),
+                'prop_name': prop.get('prop_name'),
+                'player_name': prop.get('player_name'),
+                'team_spread': prop.get('team_spread'),
+                'game_total': prop.get('game_total'),
+                'prop_scraped': prop.get('prop_scraped'),
+                'team_name': prop.get('team_name'),
+                'opp_name': prop.get('opp_name'),
+                'alt_hit': alt_hit,
+                'alt_line': alt_line
+            })
+    return alt_point_props
+
+
+recent_per_times = []
+consitency_times = []
+avg_points_times = []
+effective_fg_times = []
+
+
+def _get_start_time():
+    return time.time() * 1000
+
+
+def _get_elapsed_time(start_time):
+    return abs(start_time - time.time() * 1000)
+
+
+# pull all game logs into memory..
+def load_game_logs_into_memory():
     """
-        Creates logistic regression pipeline
+        Loads all game logs into memory using player_name+team_name as the key
+        luka+mavs
     """
-    props = sqllite_utils.get_all_props_for_type('points', DB_CON)
+    names_and_teams = sqllite_utils.get_unique_player_and_team(DB_CON)
+    player_to_gamelogs = {}
+    for data in names_and_teams:
+        player = data['player_name']
+        team = data['team_name']
+        key = player + '+' + team
+        player_to_gamelogs[key] = sqllite_utils.get_player_gls(
+            player, constants.NBA_CURR_SEASON, team, DB_CON)
+    return player_to_gamelogs
+
+
+def points_against_similar_teams(teams, gls):
+    """
+        Gets point mean for team with similar stats like pace or def
+    """
+    opps = [constants.TEAM_NAME_TO_INT.get(team) for team in teams]
+    points = []
+    for gl in gls:
+        match = OPP_REGEX.match(gl.get('opp')).group(2)
+        if match in opps:
+            points.append(gl.get('points'))
+    if len(points) == 1:
+        return points[0]
+    if len(points) == 0:
+        return None
+    return np.mean(points)
     
-    
-    prop_with_results = add_over_hit(props)
-    print(f"Samples: {len(prop_with_results)}")
-    get_per_over(prop_with_results)
+
+def build_test_data_frame():
+    print("creating props")
+    props = create_alt_point_lines(
+        sqllite_utils.get_all_props_for_type('points', DB_CON))
     data = []
-    for prop in prop_with_results:
+    print("analyzing data")
+
+    for prop in props:
         team_name = convert_team_name(prop.get('team_name'))
         player_name = prop.get('player_name')
         total = prop.get('game_total')
         opp = convert_team_name(prop.get('opp_name'))
-        total_pace = TN_PACE.get(opp) - TN_PACE.get(team_name)
-        overs = sqllite_utils.get_all_columns_for_prop('over_num', 'points',
-                                                       player_name,
-                                                       prop.get('team_name'),
-                                                       DB_CON)
+        gls = sqllite_utils.get_player_gls(player_name,
+                                           constants.NBA_CURR_SEASON,
+                                           team_name, DB_CON)
+        if gls is None:
+            print(f"couldn't find: {player_name}+{team_name}")
+            continue
 
-        eff_fg_per = stats.calculate_eff_fg_per(player_name, team_name,
-                                                prop.get('season'))
-
-        true_shooting_per = stats.calculate_true_shooting_per(
-            player_name, team_name, prop.get('season'))
+        # True shooting percentage
+        # Score against opp
+        # Score in similar spread games
+        # Score in similar total games
+        # Score in similar pace games
 
         prop_date_arr = prop.get('prop_scraped').split('-')
         prop_date = date(int(prop_date_arr[2]), int(prop_date_arr[0]),
                          int(prop_date_arr[1]))
-        recent_performance = stats.point_avg_last_nth_games(
-            player_name, team_name, prop_date, 2)
 
-        player_avg_over = np.mean(overs)
-        over_diff = player_avg_over - prop.get('over_num')
-        player_conistency = np.std([
-            col.get('points') for col in sqllite_utils.get_player_gls(
-                player_name, prop.get('season'), team_name, DB_CON)
-        ])
-        avg_points_vs_opp = get_past_performance(prop)
-        if avg_points_vs_opp is None:
+        over = prop.get('alt_line')
+        over_hit = prop.get('alt_hit')
+        eff_fg_per = stats.calculate_eff_fg_per(gls)
+        recent_performance = stats.point_avg_last_nth_games(gls, prop_date, 10)
+        player_conistency = np.std([col.get('points') for col in gls])
+
+        points_against_pace = points_against_similar_teams(
+            stats.get_teams_with_similar_pace(stats.TEAM_NAME_PACE.get(opp)),
+            gls)
+        if points_against_pace is None:
+            continue
+
+        points_against_def = points_against_similar_teams(
+            stats.get_teams_with_similar_def(stats.DEF_RTG.get(opp)), gls)
+        if points_against_def is None:
             continue
 
         if eff_fg_per is None or eff_fg_per == 0:
             print(f"{prop.get('player_name')} eff fg = 0")
             continue
 
-        # opp_pace = stats.TEAM_NAME_PACE.get(opp)
-        opp_def_rtg = stats.DEF_RTG.get(opp)
-        over = prop.get('over_num')
-        over_hit = prop.get('over_hit')
-        # spread = prop.get('team_spread')
         data.append({
-            "total_pace": total_pace,
+            "total_pace": points_against_pace,
             "conistency": player_conistency,
             "recent_per": recent_performance,
-            "opp_def_rtg": opp_def_rtg,
-            # 'total': total,
-            # 'eff_shot_per': eff_fg_per,
-            'over_diff': over_diff,
-            'avg_points': avg_points_vs_opp,
-            'over': over,
-            'over_hit': over_hit
+            "opp_def_rtg": points_against_def,
+            'eff_shot_per': eff_fg_per,
+            'alt_line': over,
+            'alt_hit': over_hit
         })
+    return pd.DataFrame(data)
 
-    df = pd.DataFrame(data)
+
+def create_logistic_regression_pipe():
+    """
+        Creates logistic regression pipeline
+    """
+    df = build_test_data_frame()
     print(df.shape[0])
     print(df.describe())
     # printing the result
-    x = np.array(df.loc[:, df.columns != 'over_hit'])
-    y = np.array(df['over_hit'])
+    x = np.array(df.loc[:, df.columns != 'alt_hit'])
+    y = np.array(df['alt_hit'])
+    print("training model")
     X_train, X_test, y_train, y_test = train_test_split(x,
                                                         y,
                                                         test_size=0.20,
@@ -261,15 +358,34 @@ def create_logistic_regression_pipe():
             verbose=0))
     pipe.fit(X_train, y_train)
     print(pipe.score(X_test, y_test))
+    print(classification_report(pipe.predict(X_test), y_test))
+    print(roc_auc_score(pipe.predict(X_test), y_test))
+    return pipe
+
+
+def create_random_forest():
+    """
+        Creates logistic regression pipeline
+    """
+    df = build_test_data_frame()
+    print(df.shape[0])
+    print(df.describe())
+    # printing the result
+    x = np.array(df.loc[:, df.columns != 'alt_hit'])
+    y = np.array(df['alt_hit'])
+    print("training model")
+    X_train, X_test, y_train, y_test = train_test_split(x,
+                                                        y,
+                                                        test_size=0.20,
+                                                        random_state=40)
+    pipe = make_pipeline(StandardScaler(),
+                         RandomForestClassifier(
+                             max_depth=3,
+                             random_state=0,
+                         ))
+    pipe.fit(X_train, y_train)
+    print(pipe.score(X_test, y_test))
     correct_over = 0
-    total = 0
-    for x1, y1 in zip(np.array(X_test), np.array(y_test)):
-        chance_of_over = pipe.predict_proba(x1.reshape(1, -1))[0, 1]
-        if chance_of_over > 0.55:
-            total += 1
-            if pipe.predict(x1.reshape(1, -1)) == 1 and y1.reshape(1, -1) == 1:
-                correct_over += 1
-    print(total)
     # print(f"correct over x {correct_over / total}")
     print(classification_report(pipe.predict(X_test), y_test))
     print(roc_auc_score(pipe.predict(X_test), y_test))
@@ -277,66 +393,67 @@ def create_logistic_regression_pipe():
     return pipe
 
 
-def get_class_and_proba(prop, pipeline):
+def per_to_american_odds(proba):
+    proba = proba * 100
+    if proba < 50:
+        return '+{:.0f}'.format((100 / (proba / 100)))
+    else:
+        return '{:.0f}'.format((proba / (1 - (proba / 100))) * -1)
+
+
+def get_alt_line_proba(prop, pipeline, alt_line):
     """
         Return (class, probability)
     """
     team_name = convert_team_name(prop.get('team_name'))
     player_name = prop.get('player_name')
     opp = convert_team_name(prop.get('opp_name'))
-    overs = sqllite_utils.get_all_columns_for_prop('over_num', 'points',
-                                                   player_name,
-                                                   prop.get('team_name'),
-                                                   DB_CON)
 
-    eff_fg_per = stats.calculate_eff_fg_per(player_name, team_name,
-                                            prop.get('season'))
-
-    player_avg_over = np.mean(overs)
-    over_diff = player_avg_over - prop.get('over_num')
-
-    player_consistency = np.std([
-        col.get('points') for col in sqllite_utils.get_player_gls(
-            player_name, prop.get('season'), team_name, DB_CON)
-    ])
-    avg_points_vs_opp = get_past_performance(prop)
-    if avg_points_vs_opp is None:
+    gls = sqllite_utils.get_player_gls(player_name, constants.NBA_CURR_SEASON,
+                                       team_name, DB_CON)
+    if gls is None:
+        print(f"couldn't find: {player_name}+{team_name}")
         return None
-    total_pace = TN_PACE.get(opp) - TN_PACE.get(team_name)
-    opp_def_rtg = stats.DEF_RTG.get(opp)
-    over = prop.get('over_num')
 
     prop_date_arr = prop.get('prop_scraped').split('-')
     prop_date = date(int(prop_date_arr[2]), int(prop_date_arr[0]),
                      int(prop_date_arr[1]))
-    recent_performance = stats.point_avg_last_nth_games(
-        player_name, team_name, prop_date, 2)
+
+    over = prop.get('alt_line')
+    over_hit = prop.get('alt_hit')
+    eff_fg_per = stats.calculate_eff_fg_per(gls)
+    recent_performance = stats.point_avg_last_nth_games(gls, prop_date, 10)
+    player_conistency = np.std([col.get('points') for col in gls])
+
+    points_against_pace = points_against_similar_teams(
+        stats.get_teams_with_similar_pace(stats.TEAM_NAME_PACE.get(opp)), gls)
+    if points_against_pace is None:
+        return None
+
+    points_against_def = points_against_similar_teams(
+        stats.get_teams_with_similar_def(stats.DEF_RTG.get(opp)), gls)
+    if points_against_def is None:
+        return None
+
+    if eff_fg_per is None or eff_fg_per == 0:
+        print(f"{prop.get('player_name')} eff fg = 0")
+        return None
+
     data = [{
-        "total_pace": total_pace,
-        "conistency": player_consistency,
+        "total_pace": points_against_pace,
+        "conistency": player_conistency,
         "recent_per": recent_performance,
-        "opp_def_rtg": opp_def_rtg,
-        # 'total': total,
-        # 'eff_shot_per': eff_fg_per,
-        'over_diff': over_diff,
-        'avg_points': avg_points_vs_opp,
-        'over': over
+        "opp_def_rtg": points_against_def,
+        'eff_shot_per': eff_fg_per,
+        'alt_line': alt_line
     }]
     df = pd.DataFrame(data)
     # print(df.describe())
-    proba_class = int(pipeline.predict(np.array(df).reshape(1, -1)))
-    if proba_class == 1:
-        proba_class_name = 'Pick Over'
-    else:
-        proba_class_name = 'Pick Under'
-
-    proba = '{:.3f}'.format(
-        pipeline.predict_proba(np.array(df).reshape(1, -1))[0, proba_class])
-    return (proba_class_name, proba)
+    proba = pipeline.predict_proba(np.array(df).reshape(1, -1))[0, 1]
+    if proba < 0.60:
+        return ""
+    proba_str = "{:.1f}".format(proba * 100)
+    return f"{proba_str}% or {per_to_american_odds(proba)}"
 
 
-# print(calculate_eff_fg_per('bradley-beal', 'washington-wizards', '2022-23'))
-# print(
-#     calculate_true_shooting_per('bradley-beal', 'washington-wizards',
-#                                 '2022-23'))
-# create_logistic_regression_pipe()
+# create_random_forest()

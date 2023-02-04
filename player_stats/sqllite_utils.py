@@ -20,7 +20,8 @@ def get_db_in_mem():
     """
         Loads SQLlite3 DB into memory only good for reading
     """
-    source = sqlite3.connect('nba_stats.db', check_same_thread=False)
+    source = sqlite3.connect('/home/dm1/Python/nba_stats.db',
+                             check_same_thread=False)
     dest = sqlite3.connect(':memory:', check_same_thread=False)
     source.backup(dest)
     source.close()
@@ -32,7 +33,8 @@ def get_conn():
     """
         Opens SQLite3 file.
     """
-    connection = sqlite3.connect('nba_stats.db', check_same_thread=False)
+    connection = sqlite3.connect('/home/dm1/Python/nba_stats.db',
+                                 check_same_thread=False)
     connection.row_factory = _dict_factory
     return connection.cursor()
 
@@ -236,7 +238,7 @@ def get_n_team_stats(num, desc, table, stat, cur):
     return [d.get('team_name') for d in cur.execute(select).fetchall()]
 
 
-def get_unique_player_names(cur):
+def get_unique_player_and_team(cur):
     """
       Get's unqiue players
     """

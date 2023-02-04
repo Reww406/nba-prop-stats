@@ -2,6 +2,7 @@
   Main python file that kicks off script processes file and creates output.
 """
 
+from datetime import date
 import re
 import time
 import matplotlib
@@ -55,36 +56,23 @@ def build_graphic(data_f, game, spread):
                   fontsize=10)
         axis.text(x=2.5,
                   y=row,
-                  s=d['odds'],
+                  s=d['over_line'],
                   va='center',
                   ha='left',
                   fontsize=10)
-        axis.text(x=3.5,
-                  y=row,
-                  s=d['edge'],
-                  va='center',
-                  ha='left',
-                  fontsize=10)
-        axis.text(x=4.5,
-                  y=row,
-                  s=d['over_proba'],
-                  va='center',
-                  ha='left',
-                  fontsize=10)
-        axis.text(x=5.5,
-                  y=row,
-                  s=d['over_class'],
-                  va='center',
-                  ha='left',
-                  fontsize=10)
-
+        axis.text(x=3.1, y=row, s=d['15'], va='center', ha='left', fontsize=10)
+        axis.text(x=4.4, y=row, s=d['20'], va='center', ha='left', fontsize=10)
+        axis.text(x=5.6, y=row, s=d['25'], va='center', ha='left', fontsize=10)
+        axis.text(x=6.8, y=row, s=d['30'], va='center', ha='left', fontsize=10)
+        row += 1
     # Column Title
     axis.text(0.2, rows, 'Player', weight='bold', ha='left')
     axis.text(1.5, rows, 'Prop', weight='bold', ha='left')
-    axis.text(2.5, rows, 'Odds', weight='bold', ha='left')
-    axis.text(3.5, rows, 'Edge', weight='bold', ha='left')
-    axis.text(4.5, rows, 'Probability', weight='bold', ha='left')
-    axis.text(5.5, rows, 'Class', weight='bold', ha='left')
+    axis.text(2.5, rows, 'Line', weight='bold', ha='left')
+    axis.text(3.3, rows, '15+', weight='bold', ha='left')
+    axis.text(4.6, rows, '20+', weight='bold', ha='left')
+    axis.text(5.8, rows, '25+', weight='bold', ha='left')
+    axis.text(7.0, rows, '30+', weight='bold', ha='left')
 
     # Creates lines
     for row in range(rows):
@@ -129,7 +117,7 @@ def beatuify_name(name: str):
     """
     name_split = name.split('-')
     name_split = [name.capitalize() for name in name_split]
-    return " ".join(name_split)
+    return " ".join(name_split)[0:18]
 
 
 def _calculate_edge(odds, proba):
@@ -156,43 +144,40 @@ def main(prop_date):
         team_dict = {
             'id': [],
             'prop': [],
-            'odds': [],
-            'edge': [],
-            'over_proba': [],
-            'over_class': []
+            'over_line': [],
+            '15': [],
+            '20': [],
+            '25': [],
+            '30': []
         }
         t_props = get_team_props(props, team)
         spread = t_props[0].get('team_spread')
         for t_prop in t_props:
-            class_and_proba = logreg.get_class_and_proba(t_prop, log_reg)
-
-            odds_num = 'Nan'
-            odds = 'Nan'
-            if class_and_proba is None:
+            odds = [
+                logreg.get_alt_line_proba(t_prop, log_reg, 14.5),
+                logreg.get_alt_line_proba(t_prop, log_reg, 19.5),
+                logreg.get_alt_line_proba(t_prop, log_reg, 24.5),
+                logreg.get_alt_line_proba(t_prop, log_reg, 29.5)
+            ]
+            all_empty = True
+            for odd in odds:
+                if odd != "":
+                    all_empty = False
+            if all_empty:
                 continue
-
-            proba_class = class_and_proba[0]
-            proba = class_and_proba[1]
-            if class_and_proba[0] == "Pick Over":
-                odds_num = f"o{t_prop.get('over_num')}"
-                odds = t_prop.get('over_odds')
-            else:
-                odds_num = f"u{t_prop.get('under_num')}"
-                odds = t_prop.get('under_odds')
-
-            edge = _calculate_edge(odds, float(class_and_proba[1]))
 
             team_dict.get('id').append(beatuify_name(
                 t_prop.get('player_name')))
             team_dict.get('prop').append(beatuify_name(
                 t_prop.get('prop_name')))
-            team_dict.get('odds').append(f"{odds_num} {odds}")
-            team_dict.get('edge').append(edge)
-            team_dict.get('over_proba').append(proba)
-            team_dict.get('over_class').append(proba_class)
+            team_dict.get('over_line').append(t_prop.get('over_num'))
+            team_dict.get('15').append(odds[0])
+            team_dict.get('20').append(odds[1])
+            team_dict.get('25').append(odds[2])
+            team_dict.get('30').append(odds[3])
         figs.append(build_graphic(pd.DataFrame(team_dict), team, spread))
-    pdf = matplotlib.backends.backend_pdf.PdfPages("./reports/" + START_TIME +
-                                                   '-report.pdf')
+    pdf = matplotlib.backends.backend_pdf.PdfPages(
+        "/home/dm1/Python/reports/" + START_TIME + '-report.pdf')
     for fig in figs:
         pdf.savefig(fig)
     pdf.close()
@@ -215,4 +200,4 @@ def check_star_players_list():
 
 # check_star_players_list()
 
-main("01-28-2023")
+main("02-03-2023")

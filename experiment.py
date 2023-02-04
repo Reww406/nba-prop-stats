@@ -89,7 +89,7 @@ def days_since_this_game(this_game, gls, player_name):
 def store_correlations():
     """_summary_
     """
-    unqiue_players = sqllite_utils.get_unique_player_names(DB_CONN)
+    unqiue_players = sqllite_utils.get_unique_player_and_team(DB_CONN)
     for player in unqiue_players:
         player_gls = sqllite_utils.get_player_gls(player.get('player_name'),
                                                   constants.NBA_CURR_SEASON,
@@ -175,7 +175,7 @@ def three_point_freq():
     """
         Three point freq
     """
-    unqiue_players = sqllite_utils.get_unique_player_names(DB_CONN)
+    unqiue_players = sqllite_utils.get_unique_player_and_team(DB_CONN)
     freqs = []
     for player in unqiue_players:
         player_gls = sqllite_utils.get_player_gls(player.get('player_name'),

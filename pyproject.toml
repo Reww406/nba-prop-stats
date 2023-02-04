@@ -1,0 +1,16 @@
+[tool.pyright]
+include = ["player_stats", ""]
+exclude = ["**/node_modules",
+    ".pytest_cache",
+    ".vscode",
+    ".git",
+    "reports",
+    "*.db",
+    "**/__pycache__",
+    "src/experimental",
+    "src/typestubs"
+]
+ignore = ["src/oldstuff"]
+defineConstant = { DEBUG = true }
+reportMissingImports = true
+reportMissingTypeStubs = false
